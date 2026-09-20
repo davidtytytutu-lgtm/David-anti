@@ -1163,7 +1163,7 @@ client.once(
 
         setInterval(
             sendHeartbeat,
-            60000
+            5000
         );
     }
 );
