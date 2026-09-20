@@ -1,4 +1,3 @@
-```js
 // ============================================================
 // DAVID ANTI
 // Discord Anti-Insulte / Anti-NSFW / Anti-Gore
@@ -1325,4 +1324,3 @@ console.log(
 client.login(
     DISCORD_TOKEN
 );
-```
