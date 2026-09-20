@@ -1,722 +1,163 @@
+```js
+// ============================================================
+// DAVID ANTI
+// Discord Anti-Insulte / Anti-NSFW / Anti-Gore
+// Avec analyse automatique des images
+// ============================================================
+
 const {
     Client,
     GatewayIntentBits,
-    SlashCommandBuilder,
-    EmbedBuilder
+    REST,
+    Routes,
+    SlashCommandBuilder
 } = require("discord.js");
 
-const http = require("http");
+const express = require("express");
+const OpenAI = require("openai");
 
 // ============================================================
 // CONFIGURATION
 // ============================================================
 
-const TOKEN = process.env.DISCORD_TOKEN;
-
-const GUILD_ID = "1550531386295718060";
-
-// ============================================================
-// RÔLE ADMIN / ÉQUIPE
-// ============================================================
-
-const ADMIN_ROLE_ID =
-    "1550561028343865535";
-
-// ============================================================
-// HEARTBEAT
-// ============================================================
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 
 const HEARTBEAT_SERVER_URL =
-    process.env.HEARTBEAT_SERVER_URL;
+    process.env.HEARTBEAT_SERVER_URL ||
+    "https://david-beat.onrender.com/heartbeat";
 
 const HEARTBEAT_SECRET =
     process.env.HEARTBEAT_SECRET;
 
-const HEARTBEAT_DELAY = 10000;
+const OPENAI_API_KEY =
+    process.env.OPENAI_API_KEY;
 
-const HEARTBEAT_RETRY_DELAY = 30000;
+const ADMIN_ROLE_ID =
+    "1550561028343865535";
 
-// ============================================================
-// IMAGE MODERATION
-// ============================================================
-
-const HF_TOKEN =
-    process.env.HF_TOKEN;
-
-// Modèle :
-// SFW / NSFW / NSFL
-//
-// NSFW = contenu sexuel/adulte
-// NSFL = gore / contenu violent
-//
-// L'URL peut être modifiée via Render si nécessaire.
-
-const IMAGE_MODEL =
-    process.env.IMAGE_MODEL ||
-    "OwenElliott/image-safety-classifier-m";
-
-const IMAGE_API_URL =
-    process.env.IMAGE_API_URL ||
-    `https://router.huggingface.co/hf-inference/models/${IMAGE_MODEL}`;
-
-// Score à partir duquel l'image est considérée interdite.
-
-const NSFW_THRESHOLD = 0.70;
-
-const NSFL_THRESHOLD = 0.70;
-
-// Taille maximale analysée : 10 MB
-
-const MAX_IMAGE_SIZE =
-    10 * 1024 * 1024;
+const PORT =
+    process.env.PORT || 10000;
 
 // ============================================================
-// RGB
+// VÉRIFICATIONS
 // ============================================================
 
-const RGB_DELAY = 7000;
+if (!DISCORD_TOKEN) {
+    console.error("❌ DISCORD_TOKEN manquant.");
+    process.exit(1);
+}
 
-const RGB_NAMES = [
+if (!HEARTBEAT_SECRET) {
+    console.warn("⚠️ HEARTBEAT_SECRET manquant.");
+}
 
-    "🔴𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🔴",
-
-    "🟠𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟠",
-
-    "🟡𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟡",
-
-    "🟢𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟢",
-
-    "🔵𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🔵",
-
-    "🟣𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟣",
-
-    "⚫𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢⚫"
-
-];
-
-let rgbIndex = 0;
-
-let rgbStarted = false;
+if (!OPENAI_API_KEY) {
+    console.warn(
+        "⚠️ OPENAI_API_KEY manquante : analyse des images désactivée."
+    );
+}
 
 // ============================================================
-// START TIME
+// OPENAI
 // ============================================================
 
-const BOT_START_TIME = Date.now();
+const openai = OPENAI_API_KEY
+    ? new OpenAI({
+        apiKey: OPENAI_API_KEY
+    })
+    : null;
 
 // ============================================================
-// CLIENT
+// DISCORD CLIENT
 // ============================================================
 
 const client = new Client({
-
     intents: [
-
         GatewayIntentBits.Guilds,
-
         GatewayIntentBits.GuildMessages,
-
         GatewayIntentBits.MessageContent,
-
         GatewayIntentBits.GuildMembers
-
     ]
-
 });
 
 // ============================================================
-// UPTIME
+// VARIABLES
 // ============================================================
 
-function formatUptime(ms) {
+const startTime = Date.now();
 
-    let seconds =
-        Math.floor(ms / 1000);
-
-    const days =
-        Math.floor(seconds / 86400);
-
-    seconds %= 86400;
-
-    const hours =
-        Math.floor(seconds / 3600);
-
-    seconds %= 3600;
-
-    const minutes =
-        Math.floor(seconds / 60);
-
-    seconds %= 60;
-
-    const parts = [];
-
-    if (days)
-        parts.push(`${days}j`);
-
-    if (hours)
-        parts.push(`${hours}h`);
-
-    if (minutes)
-        parts.push(`${minutes}m`);
-
-    parts.push(`${seconds}s`);
-
-    return parts.join(" ");
-}
+let heartbeatCount = 0;
+let imageModerationCount = 0;
+let imageBlockedCount = 0;
 
 // ============================================================
-// BYTES
+// NOMS RGB
 // ============================================================
 
-function formatBytes(bytes) {
-
-    if (!bytes)
-        return "0 B";
-
-    const units = [
-        "B",
-        "KB",
-        "MB",
-        "GB"
-    ];
-
-    let i = 0;
-
-    let value = bytes;
-
-    while (
-        value >= 1024 &&
-        i < units.length - 1
-    ) {
-
-        value /= 1024;
-
-        i++;
-
-    }
-
-    return `${value.toFixed(2)} ${units[i]}`;
-
-}
-
-// ============================================================
-// AVATAR
-// ============================================================
-
-function avatar(user) {
-
-    return user.displayAvatarURL({
-
-        extension: "png",
-
-        size: 256
-
-    });
-
-}
-
-// ============================================================
-// HTTP SERVER
-// ============================================================
-
-const server =
-    http.createServer(
-        (req, res) => {
-
-            // =================================================
-            // HEARTBEAT
-            // =================================================
-
-            if (
-                req.url === "/heartbeat"
-            ) {
-
-                const authorization =
-                    req.headers.authorization;
-
-                if (
-                    HEARTBEAT_SECRET &&
-                    authorization !==
-                    `Bearer ${HEARTBEAT_SECRET}`
-                ) {
-
-                    console.log(
-                        "🚫 Heartbeat refusé."
-                    );
-
-                    res.writeHead(
-                        401,
-                        {
-                            "Content-Type":
-                                "application/json; charset=utf-8"
-                        }
-                    );
-
-                    res.end(
-                        JSON.stringify({
-
-                            status:
-                                "unauthorized",
-
-                            heartbeat:
-                                false
-
-                        })
-                    );
-
-                    return;
-                }
-
-                console.log(
-                    "💓 Heartbeat reçu du HEARTBEAT SERVER"
-                );
-
-                res.writeHead(
-                    200,
-                    {
-                        "Content-Type":
-                            "application/json; charset=utf-8"
-                    }
-                );
-
-                res.end(
-                    JSON.stringify({
-
-                        status:
-                            "ok",
-
-                        heartbeat:
-                            true,
-
-                        bot:
-                            "DAVID-ANTI",
-
-                        discord:
-                            client.isReady(),
-
-                        timestamp:
-                            Date.now()
-
-                    })
-                );
-
-                return;
-
-            }
-
-            // =================================================
-            // PAGE
-            // =================================================
-
-            if (
-                req.url === "/"
-            ) {
-
-                res.writeHead(
-                    200,
-                    {
-                        "Content-Type":
-                            "text/html; charset=utf-8"
-                    }
-                );
-
-                res.end(`
-
-<!DOCTYPE html>
-
-<html lang="fr">
-
-<head>
-
-<meta charset="UTF-8">
-
-<title>DAVID ANTI</title>
-
-<style>
-
-body {
-
-    background:#050505;
-
-    color:#00ff66;
-
-    font-family:monospace;
-
-    text-align:center;
-
-    padding-top:80px;
-
-}
-
-.box {
-
-    border:1px solid #00ff66;
-
-    padding:30px;
-
-    max-width:600px;
-
-    margin:auto;
-
-}
-
-h1 {
-
-    font-size:42px;
-
-}
-
-</style>
-
-</head>
-
-<body>
-
-<div class="box">
-
-<h1>🛡️ DAVID ANTI</h1>
-
-<p>🟢 ONLINE</p>
-
-<p>Anti-insulte / Anti-NSFW / Anti-GORE</p>
-
-<p>
-
-Uptime :
-
-${formatUptime(
-    Date.now() -
-    BOT_START_TIME
-)}
-
-</p>
-
-</div>
-
-</body>
-
-</html>
-
-`);
-
-                return;
-            }
-
-            // =================================================
-            // 404
-            // =================================================
-
-            res.writeHead(
-                404,
-                {
-                    "Content-Type":
-                        "application/json"
-                }
-            );
-
-            res.end(
-                JSON.stringify({
-                    error:
-                        "Not Found"
-                })
-            );
-
-        }
-    );
-
-// ============================================================
-// HTTP START
-// ============================================================
-
-server.listen(
-
-    process.env.PORT ||
-    10000,
-
-    "0.0.0.0",
-
-    () => {
-
-        console.log(
-
-            `🌐 Serveur HTTP démarré sur le port ${
-                process.env.PORT ||
-                10000
-            }`
-
-        );
-
-    }
-
-);
-
-// ============================================================
-// HEARTBEAT
-// ============================================================
-
-async function sendHeartbeatToServer() {
-
-    if (
-        !HEARTBEAT_SERVER_URL
-    ) {
-
-        console.error(
-            "❌ HEARTBEAT_SERVER_URL manquant."
-        );
-
-        setTimeout(
-            sendHeartbeatToServer,
-            HEARTBEAT_RETRY_DELAY
-        );
-
-        return;
-    }
-
-    console.log(
-        "💓 DAVID ANTI → HEARTBEAT SERVER"
-    );
-
-    try {
-
-        const response =
-            await fetch(
-                HEARTBEAT_SERVER_URL,
-                {
-
-                    method:
-                        "GET",
-
-                    headers: {
-
-                        "Accept":
-                            "application/json",
-
-                        "Authorization":
-                            `Bearer ${
-                                HEARTBEAT_SECRET ||
-                                ""
-                            }`,
-
-                        "User-Agent":
-                            "DAVID-ANTI"
-
-                    },
-
-                    signal:
-                        AbortSignal.timeout(
-                            10000
-                        )
-
-                }
-            );
-
-        console.log(
-            `💓 Réponse heartbeat : HTTP ${
-                response.status
-            }`
-        );
-
-        const text =
-            await response.text();
-
-        if (
-            !response.ok
-        ) {
-
-            throw new Error(
-                `HTTP ${response.status}`
-            );
-
-        }
-
-        let data;
-
-        try {
-
-            data =
-                JSON.parse(text);
-
-        } catch {
-
-            throw new Error(
-                "Réponse heartbeat non-JSON"
-            );
-
-        }
-
-        console.log(
-            "✅ Heartbeat réussi :",
-            data
-        );
-
-        setTimeout(
-            sendHeartbeatToServer,
-            HEARTBEAT_DELAY
-        );
-
-    } catch (error) {
-
-        console.error(
-            "❌ Heartbeat échoué :",
-            error.message
-        );
-
-        setTimeout(
-            sendHeartbeatToServer,
-            HEARTBEAT_RETRY_DELAY
-        );
-
-    }
-
-}
-
-// ============================================================
-// RGB
-// ============================================================
-
-async function changeRGBName() {
-
-    try {
-
-        const guild =
-            await client.guilds.fetch(
-                GUILD_ID
-            );
-
-        const botMember =
-            await guild.members.fetch(
-                client.user.id,
-                {
-                    force: true
-                }
-            );
-
-        const newName =
-            RGB_NAMES[rgbIndex];
-
-        console.log(
-            `🌈 Changement du nom → ${newName}`
-        );
-
-        await botMember.setNickname(
-            newName,
-            "DAVID ANTI - RGB"
-        );
-
-        console.log(
-            `✅ Nom changé → ${newName}`
-        );
-
-        rgbIndex =
-            (
-                rgbIndex + 1
-            ) %
-            RGB_NAMES.length;
-
-    } catch (error) {
-
-        console.error(
-            "❌ RGB erreur :",
-            error.message
-        );
-
-        rgbIndex =
-            (
-                rgbIndex + 1
-            ) %
-            RGB_NAMES.length;
-
-    }
-
-}
-
-// ============================================================
-// START RGB
-// ============================================================
-
-function startRGB() {
-
-    if (rgbStarted)
-        return;
-
-    rgbStarted = true;
-
-    console.log(
-        "🌈 RGB : démarrage..."
-    );
-
-    changeRGBName();
-
-    setInterval(
-        changeRGBName,
-        RGB_DELAY
-    );
-
-}
+const RGB_NAMES = [
+    "🔴𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🔴",
+    "🟠𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟠",
+    "🟡𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟡",
+    "🟢𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟢",
+    "🔵𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🔵",
+    "🟣𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟣",
+    "⚫𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢⚫",
+    "🟤𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟤"
+];
+
+let rgbIndex = 0;
 
 // ============================================================
 // MOTS INTERDITS
 // ============================================================
 
 const BLOCKED_WORDS = [
-
     "con",
     "conne",
     "connard",
     "connasse",
-
     "abruti",
     "abrutie",
-
     "idiot",
     "idiote",
-
     "imbecile",
     "crétin",
     "cretin",
-
     "crétine",
     "cretine",
-
     "débile",
     "debile",
-
     "salaud",
     "salopard",
     "salop",
 
     "pute",
     "putain",
-
     "merde",
     "bordel",
 
     "enculé",
     "encule",
-
     "enculée",
     "enculee",
 
     "fdp",
     "ntm",
     "tg",
-
     "ta gueule",
-
-    // NSFW texte
 
     "porn",
     "porno",
     "pornographie",
     "pornographique",
-
     "xxx",
     "nsfw",
-
     "sexcam",
 
     "nude",
     "nudes",
+    "nudité",
+    "nudite",
 
     "masturbation",
     "masturber",
@@ -724,182 +165,110 @@ const BLOCKED_WORDS = [
     "pénétration",
     "penetration",
 
-    // GORE texte
-
     "gore",
-
     "décapitation",
     "decapitation",
-
     "démembrement",
     "demembrement"
-
 ];
 
 // ============================================================
-// DOMAINES NSFW
+// DOMAINES INTERDITS
 // ============================================================
 
 const BLOCKED_DOMAINS = [
-
     "pornhub",
     "xvideos",
     "xnxx",
     "xhamster",
     "redtube"
-
 ];
 
 // ============================================================
-// NORMALISATION
+// NORMALISATION DU TEXTE
 // ============================================================
 
 function normalizeModerationText(text) {
-
     return text
-
         .toLowerCase()
-
         .normalize("NFD")
-
-        .replace(
-            /[\u0300-\u036f]/g,
-            ""
-        )
-
-        .replace(
-            /[@4]/g,
-            "a"
-        )
-
-        .replace(
-            /[3€]/g,
-            "e"
-        )
-
-        .replace(
-            /[1!|]/g,
-            "i"
-        )
-
-        .replace(
-            /[0]/g,
-            "o"
-        )
-
-        .replace(
-            /[5$]/g,
-            "s"
-        )
-
-        .replace(
-            /[7]/g,
-            "t"
-        )
-
-        .replace(
-            /[^a-z0-9]+/g,
-            " "
-        )
-
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[@4]/g, "a")
+        .replace(/[3€]/g, "e")
+        .replace(/[1!|]/g, "i")
+        .replace(/[0]/g, "o")
+        .replace(/[5$]/g, "s")
+        .replace(/[7]/g, "t")
+        .replace(/[^a-z0-9]+/g, " ")
         .trim();
-
 }
 
 // ============================================================
-// MOTS
+// DÉTECTION DES MOTS
 // ============================================================
 
 function containsBlockedWord(text) {
 
-    const cleaned =
-        normalizeModerationText(
-            text
-        );
+    const cleanedText =
+        normalizeModerationText(text);
 
     const words =
-        cleaned
+        cleanedText
             .split(/\s+/)
             .filter(Boolean);
 
-    for (
-        const word of BLOCKED_WORDS
-    ) {
+    for (const word of BLOCKED_WORDS) {
 
         const normalizedWord =
-            normalizeModerationText(
-                word
-            );
+            normalizeModerationText(word);
 
-        if (
-            words.includes(
-                normalizedWord
-            )
-        ) {
+        // Mot exact
+        if (words.includes(normalizedWord)) {
 
             return {
-
-                detected:
-                    true,
-
-                type:
-                    "mot interdit",
-
-                word
-
+                detected: true,
+                type: "mot interdit",
+                word: word
             };
-
         }
-
     }
 
-    const compact =
-        cleaned.replace(
-            /\s+/g,
-            ""
-        );
+    // Détection de variantes séparées
+    // Exemple :
+    // c.o.n.n.a.r.d
+    // c-o-n-n-a-r-d
+    // c o n n a r d
 
-    for (
-        const word of BLOCKED_WORDS
-    ) {
+    const compactText =
+        cleanedText.replace(/\s+/g, "");
+
+    for (const word of BLOCKED_WORDS) {
 
         const normalizedWord =
-            normalizeModerationText(
-                word
-            );
+            normalizeModerationText(word);
 
+        // On évite les petits mots comme "con"
+        // pour empêcher les faux positifs.
         if (
             normalizedWord.length >= 4 &&
-            compact.includes(
-                normalizedWord
-            )
+            compactText.includes(normalizedWord)
         ) {
 
             return {
-
-                detected:
-                    true,
-
-                type:
-                    "mot interdit",
-
-                word
-
+                detected: true,
+                type: "mot interdit",
+                word: word
             };
-
         }
-
     }
 
     return {
-        detected:
-            false
+        detected: false
     };
-
 }
 
 // ============================================================
-// DOMAINES
+// DÉTECTION DES DOMAINES
 // ============================================================
 
 function containsBlockedDomain(text) {
@@ -907,1176 +276,845 @@ function containsBlockedDomain(text) {
     const lower =
         text.toLowerCase();
 
-    for (
-        const domain of BLOCKED_DOMAINS
-    ) {
+    for (const domain of BLOCKED_DOMAINS) {
 
-        if (
-            lower.includes(
-                domain
-            )
-        ) {
+        if (lower.includes(domain)) {
 
             return {
-
-                detected:
-                    true,
-
-                type:
-                    "lien NSFW",
-
-                domain
-
+                detected: true,
+                type: "lien NSFW",
+                domain: domain
             };
-
         }
-
     }
 
     return {
-        detected:
-            false
+        detected: false
     };
-
 }
 
 // ============================================================
-// IMAGE : TYPE
+// VÉRIFICATION IMAGE
 // ============================================================
 
 function isImageAttachment(attachment) {
 
     if (
         attachment.contentType &&
-        attachment.contentType
-            .toLowerCase()
-            .startsWith("image/")
+        attachment.contentType.startsWith("image/")
     ) {
-
         return true;
-
     }
 
     const name =
-        (
-            attachment.name ||
-            ""
-        ).toLowerCase();
+        attachment.name?.toLowerCase() || "";
 
     return (
-
         name.endsWith(".jpg") ||
-
         name.endsWith(".jpeg") ||
-
         name.endsWith(".png") ||
-
-        name.endsWith(".webp") ||
-
-        name.endsWith(".gif") ||
-
-        name.endsWith(".bmp")
-
+        name.endsWith(".webp")
     );
-
 }
 
 // ============================================================
-// IMAGE : MODÉRATION IA
+// MODÉRATION OPENAI
 // ============================================================
 
-async function moderateImage(
-    attachment
-) {
+async function moderateImage(imageUrl) {
 
-    // ========================================================
-    // TOKEN
-    // ========================================================
-
-    if (!HF_TOKEN) {
-
-        console.error(
-            "❌ HF_TOKEN n'est pas configuré."
-        );
-
-        return {
-
-            detected:
-                false,
-
-            error:
-                true,
-
-            reason:
-                "HF_TOKEN_MISSING"
-
-        };
-
-    }
-
-    // ========================================================
-    // TAILLE
-    // ========================================================
-
-    if (
-        attachment.size &&
-        attachment.size >
-        MAX_IMAGE_SIZE
-    ) {
+    if (!openai) {
 
         console.log(
-
-            `⚠️ Image ignorée car trop grande : ${
-                formatBytes(
-                    attachment.size
-                )
-            }`
-
+            "⚠️ Analyse image ignorée : OPENAI_API_KEY absente."
         );
 
         return {
-
-            detected:
-                false,
-
-            skipped:
-                true,
-
-            reason:
-                "IMAGE_TOO_LARGE"
-
+            available: false,
+            flagged: false
         };
-
     }
-
-    console.log("");
-
-    console.log(
-        "🖼️ ANALYSE IMAGE"
-    );
-
-    console.log(
-        `📁 Nom : ${attachment.name}`
-    );
-
-    console.log(
-        `📦 Taille : ${
-            formatBytes(
-                attachment.size
-            )
-        }`
-    );
-
-    console.log(
-        `🤖 Modèle : ${IMAGE_MODEL}`
-    );
 
     try {
 
-        // ====================================================
-        // TÉLÉCHARGEMENT
-        // ====================================================
-
-        const imageResponse =
-            await fetch(
-                attachment.url,
-                {
-
-                    signal:
-                        AbortSignal.timeout(
-                            15000
-                        )
-
-                }
-            );
-
-        if (
-            !imageResponse.ok
-        ) {
-
-            throw new Error(
-
-                `Téléchargement image HTTP ${
-                    imageResponse.status
-                }`
-
-            );
-
-        }
-
-        const contentLength =
-            Number(
-                imageResponse.headers
-                    .get(
-                        "content-length"
-                    ) ||
-                    0
-            );
-
-        if (
-            contentLength >
-            MAX_IMAGE_SIZE
-        ) {
-
-            return {
-
-                detected:
-                    false,
-
-                skipped:
-                    true,
-
-                reason:
-                    "IMAGE_TOO_LARGE"
-
-            };
-
-        }
-
-        const imageBuffer =
-            Buffer.from(
-                await imageResponse.arrayBuffer()
-            );
-
-        if (
-            imageBuffer.length >
-            MAX_IMAGE_SIZE
-        ) {
-
-            return {
-
-                detected:
-                    false,
-
-                skipped:
-                    true,
-
-                reason:
-                    "IMAGE_TOO_LARGE"
-
-            };
-
-        }
-
-        // ====================================================
-        // ENVOI AU MODÈLE
-        // ====================================================
-
-        const aiResponse =
-            await fetch(
-                IMAGE_API_URL,
-                {
-
-                    method:
-                        "POST",
-
-                    headers: {
-
-                        "Authorization":
-                            `Bearer ${HF_TOKEN}`,
-
-                        "Content-Type":
-                            attachment.contentType ||
-                            "application/octet-stream",
-
-                        "Accept":
-                            "application/json"
-
-                    },
-
-                    body:
-                        imageBuffer,
-
-                    signal:
-                        AbortSignal.timeout(
-                            30000
-                        )
-
-                }
-            );
-
-        const responseText =
-            await aiResponse.text();
-
-        if (
-            !aiResponse.ok
-        ) {
-
-            throw new Error(
-
-                `Hugging Face HTTP ${
-                    aiResponse.status
-                } : ${
-                    responseText.slice(
-                        0,
-                        300
-                    )
-                }`
-
-            );
-
-        }
-
-        let results;
-
-        try {
-
-            results =
-                JSON.parse(
-                    responseText
-                );
-
-        } catch {
-
-            throw new Error(
-                "Réponse IA invalide."
-            );
-
-        }
-
-        // ====================================================
-        // NORMALISATION RÉSULTATS
-        // ====================================================
-
-        let predictions = [];
-
-        if (
-            Array.isArray(results)
-        ) {
-
-            predictions =
-                results;
-
-        } else if (
-            results &&
-            Array.isArray(
-                results.predictions
-            )
-        ) {
-
-            predictions =
-                results.predictions;
-
-        }
-
-        // Certains modèles peuvent
-        // renvoyer des tableaux imbriqués.
-
-        if (
-            predictions.length === 1 &&
-            Array.isArray(
-                predictions[0]
-            )
-        ) {
-
-            predictions =
-                predictions[0];
-
-        }
+        imageModerationCount++;
 
         console.log(
-            "🤖 Résultats IA :",
-            predictions
+            `🖼️ Analyse image OpenAI #${imageModerationCount}`
         );
 
-        // ====================================================
-        // SCORES
-        // ====================================================
+        const moderation =
+            await openai.moderations.create({
 
-        let nsfwScore = 0;
+                model: "omni-moderation-latest",
 
-        let nsflScore = 0;
+                input: [
+                    {
+                        type: "image_url",
 
-        let sfwScore = 0;
+                        image_url: {
+                            url: imageUrl
+                        }
+                    }
+                ]
+            });
 
-        for (
-            const prediction
-            of predictions
-        ) {
+        const result =
+            moderation.results[0];
 
-            const label =
-                String(
-                    prediction.label ||
-                    prediction.class ||
-                    ""
-                )
-                .toLowerCase();
+        if (!result) {
 
-            const score =
-                Number(
-                    prediction.score ||
-                    prediction.confidence ||
-                    0
-                );
+            console.log(
+                "⚠️ OpenAI n'a renvoyé aucun résultat."
+            );
 
-            if (
-                label.includes("nsfw")
-            ) {
+            return {
+                available: true,
+                flagged: false
+            };
+        }
 
-                nsfwScore =
-                    Math.max(
-                        nsfwScore,
-                        score
-                    );
+        const categories =
+            result.categories || {};
 
+        const sexual =
+            Boolean(categories.sexual);
+
+        const sexualMinors =
+            Boolean(categories["sexual/minors"]);
+
+        const violence =
+            Boolean(categories.violence);
+
+        const graphicViolence =
+            Boolean(categories["violence/graphic"]);
+
+        const flagged =
+            Boolean(result.flagged) ||
+            sexual ||
+            sexualMinors ||
+            violence ||
+            graphicViolence;
+
+        console.log(
+            "🔎 Résultat image :",
+            {
+                flagged,
+                sexual,
+                sexualMinors,
+                violence,
+                graphicViolence
             }
-
-            if (
-                label.includes("nsfl")
-            ) {
-
-                nsflScore =
-                    Math.max(
-                        nsflScore,
-                        score
-                    );
-
-            }
-
-            if (
-                label === "sfw" ||
-                label.includes("safe")
-            ) {
-
-                sfwScore =
-                    Math.max(
-                        sfwScore,
-                        score
-                    );
-
-            }
-
-        }
-
-        console.log(
-            `🔞 NSFW : ${(
-                nsfwScore * 100
-            ).toFixed(2)}%`
         );
-
-        console.log(
-            `🩸 NSFL/GORE : ${(
-                nsflScore * 100
-            ).toFixed(2)}%`
-        );
-
-        console.log(
-            `✅ SFW : ${(
-                sfwScore * 100
-            ).toFixed(2)}%`
-        );
-
-        // ====================================================
-        // DÉCISION
-        // ====================================================
-
-        if (
-            nsfwScore >=
-            NSFW_THRESHOLD
-        ) {
-
-            return {
-
-                detected:
-                    true,
-
-                type:
-                    "image NSFW",
-
-                score:
-                    nsfwScore,
-
-                label:
-                    "NSFW"
-
-            };
-
-        }
-
-        if (
-            nsflScore >=
-            NSFL_THRESHOLD
-        ) {
-
-            return {
-
-                detected:
-                    true,
-
-                type:
-                    "image GORE / NSFL",
-
-                score:
-                    nsflScore,
-
-                label:
-                    "NSFL"
-
-            };
-
-        }
 
         return {
-
-            detected:
-                false,
-
-            score:
-                Math.max(
-                    nsfwScore,
-                    nsflScore
-                ),
-
-            label:
-                "SFW"
-
+            available: true,
+            flagged,
+            sexual,
+            sexualMinors,
+            violence,
+            graphicViolence
         };
 
     } catch (error) {
 
         console.error(
-            "❌ Erreur analyse image :",
+            "❌ Erreur OpenAI image :",
             error.message
         );
 
         return {
-
-            detected:
-                false,
-
-            error:
-                true,
-
-            reason:
-                error.message
-
+            available: false,
+            flagged: false,
+            error: error.message
         };
-
     }
-
 }
 
 // ============================================================
-// ANALYSER TOUTES LES IMAGES
+// TEMPS DE FONCTIONNEMENT
 // ============================================================
 
-async function moderateMessageImages(
-    message
-) {
+function formatUptime(ms) {
 
-    if (
-        !message.attachments ||
-        message.attachments.size === 0
-    ) {
+    const seconds =
+        Math.floor(ms / 1000);
 
-        return {
+    const days =
+        Math.floor(seconds / 86400);
 
-            detected:
-                false
+    const hours =
+        Math.floor((seconds % 86400) / 3600);
 
-        };
+    const minutes =
+        Math.floor((seconds % 3600) / 60);
 
+    const secs =
+        seconds % 60;
+
+    return `${days}j ${hours}h ${minutes}m ${secs}s`;
+}
+
+// ============================================================
+// SERVEUR HTTP RENDER
+// ============================================================
+
+const app =
+    express();
+
+app.use(
+    express.json()
+);
+
+// Page principale
+app.get(
+    "/",
+    (req, res) => {
+
+        res.status(200).json({
+            bot: "DAVID ANTI",
+            online: true,
+            status: "online",
+            uptime: formatUptime(
+                Date.now() - startTime
+            ),
+            discord: client.isReady()
+                ? "connected"
+                : "connecting",
+            openai: openai
+                ? "enabled"
+                : "disabled"
+        });
     }
+);
 
-    const images =
-        message.attachments
-            .filter(
-                attachment =>
-                    isImageAttachment(
-                        attachment
-                    )
-            );
+// Health check
+app.get(
+    "/health",
+    (req, res) => {
 
-    if (
-        images.size === 0
-    ) {
-
-        return {
-
-            detected:
-                false
-
-        };
-
+        res.status(200).json({
+            online: true,
+            bot: "david-anti",
+            uptime: Date.now() - startTime,
+            discord: client.isReady(),
+            heartbeat: heartbeatCount,
+            imageModeration:
+                openai
+                    ? "enabled"
+                    : "disabled"
+        });
     }
+);
 
-    console.log(
-        `🖼️ ${images.size} image(s) à analyser.`
-    );
+// ============================================================
+// ENDPOINT HEARTBEAT
+// ============================================================
 
-    for (
-        const [
-            id,
-            attachment
-        ]
-        of images
-    ) {
+app.post(
+    "/heartbeat",
+    (req, res) => {
 
-        console.log(
-            `🔍 Analyse image ${id}...`
-        );
-
-        const result =
-            await moderateImage(
-                attachment
-            );
+        const secret =
+            req.headers["x-heartbeat-secret"];
 
         if (
-            result.detected
+            HEARTBEAT_SECRET &&
+            secret !== HEARTBEAT_SECRET
         ) {
 
-            return {
-
-                detected:
-                    true,
-
-                ...result,
-
-                attachment
-
-            };
-
+            return res
+                .status(401)
+                .json({
+                    status: "unauthorized"
+                });
         }
 
+        heartbeatCount++;
+
+        console.log(
+            "💓 HEARTBEAT REÇU"
+        );
+
+        res.json({
+            status: "ok",
+            bot: "david-anti",
+            online: true,
+            uptime: Date.now() - startTime,
+            heartbeat: heartbeatCount
+        });
     }
-
-    return {
-
-        detected:
-            false
-
-    };
-
-}
+);
 
 // ============================================================
-// COMMANDES
+// DÉMARRAGE HTTP
+// ============================================================
+
+app.listen(
+    PORT,
+    () => {
+
+        console.log(
+            `🌐 HTTP server démarré sur le port ${PORT}`
+        );
+    }
+);
+
+// ============================================================
+// ENVOI HEARTBEAT VERS DAVID-BEAT
+// ============================================================
+
+async function sendHeartbeat() {
+
+    if (!HEARTBEAT_SERVER_URL) {
+        return;
+    }
+
+    try {
+
+        const response =
+            await fetch(
+                HEARTBEAT_SERVER_URL,
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json",
+
+                        "x-heartbeat-secret":
+                            HEARTBEAT_SECRET || ""
+                    },
+
+                    body: JSON.stringify({
+                        bot: "david-anti",
+                        online: true,
+                        uptime:
+                            Date.now() - startTime,
+                        timestamp:
+                            new Date().toISOString()
+                    })
+                }
+            );
+
+        const data =
+            await response.json()
+                .catch(() => ({}));
+
+        console.log(
+            "💓 DAVID ANTI → HEARTBEAT SERVER",
+            response.status,
+            data
+        );
+
+    } catch (error) {
+
+        console.error(
+            "❌ Heartbeat impossible :",
+            error.message
+        );
+    }
+}
+
+// Premier heartbeat après connexion
+setTimeout(
+    sendHeartbeat,
+    15000
+);
+
+// Puis toutes les 60 secondes
+setInterval(
+    sendHeartbeat,
+    60000
+);
+
+// ============================================================
+// COMMANDES SLASH
 // ============================================================
 
 const commands = [
 
     new SlashCommandBuilder()
-
-        .setName(
-            "botinfo"
-        )
-
+        .setName("botinfo")
         .setDescription(
-            "🤖 Affiche les informations du bot."
+            "Affiche les informations de DAVID ANTI"
         ),
 
     new SlashCommandBuilder()
-
-        .setName(
-            "uptime"
-        )
-
+        .setName("uptime")
         .setDescription(
-            "⏱️ Affiche depuis combien de temps le bot est actif."
+            "Affiche depuis combien de temps DAVID ANTI est en ligne"
         )
 
-];
+].map(
+    command => command.toJSON()
+);
+
+// ============================================================
+// ENREGISTREMENT DES COMMANDES
+// ============================================================
+
+async function registerCommands() {
+
+    try {
+
+        if (!client.user) {
+            return;
+        }
+
+        const rest =
+            new REST({
+                version: "10"
+            }).setToken(
+                DISCORD_TOKEN
+            );
+
+        await rest.put(
+            Routes.applicationCommands(
+                client.user.id
+            ),
+            {
+                body: commands
+            }
+        );
+
+        console.log(
+            "✅ Commandes slash enregistrées."
+        );
+
+    } catch (error) {
+
+        console.error(
+            "❌ Erreur commandes slash :",
+            error.message
+        );
+    }
+}
 
 // ============================================================
 // READY
 // ============================================================
 
 client.once(
-
     "clientReady",
-
     async () => {
 
         console.log("");
-
         console.log(
-            "===================================="
+            "=========================================="
         );
-
         console.log(
-            "          DAVID ANTI ONLINE"
+            "🛡️ DAVID ANTI CONNECTÉ"
         );
-
         console.log(
-            "===================================="
+            "=========================================="
         );
 
         console.log(
-            `🤖 Connecté en tant que ${
-                client.user.tag
-            }`
+            `👤 Connecté en tant que ${client.user.tag}`
         );
 
         console.log(
-            `🆔 ID : ${
-                client.user.id
-            }`
+            `🆔 Bot ID : ${client.user.id}`
         );
 
         console.log(
-            `🌐 Serveurs : ${
-                client.guilds.cache.size
-            }`
+            `🌐 Serveurs : ${client.guilds.cache.size}`
         );
 
         console.log(
-            `📦 Commandes : ${
-                commands.length
-            }`
+            "🛡️ Anti-insulte / Anti-NSFW : ACTIVÉ"
         );
 
         console.log(
-            `🟢 Node.js : ${
-                process.version
-            }`
+            "🖼️ Analyse images :",
+            openai
+                ? "ACTIVÉE"
+                : "DÉSACTIVÉE"
         );
 
         console.log(
-            `🧩 Discord.js : ${
-                require("discord.js").version
-            }`
+            "👑 Propriétaire du serveur : EXEMPTÉ"
         );
 
         console.log(
-            "🛡️ Anti-insulte : ACTIVÉ"
+            "🛡️ Rôle équipe : EXEMPTÉ"
         );
 
         console.log(
-            "🔞 Anti-NSFW texte : ACTIVÉ"
+            "=========================================="
         );
-
-        console.log(
-            "🖼️ Anti-NSFW image : ACTIVÉ"
-        );
-
-        console.log(
-            "🩸 Anti-GORE image : ACTIVÉ"
-        );
-
-        console.log(
-            `🛡️ Rôle équipe : ${
-                ADMIN_ROLE_ID
-            }`
-        );
-
-        console.log(
-            `🤖 Modèle image : ${
-                IMAGE_MODEL
-            }`
-        );
-
-        if (!HF_TOKEN) {
-
-            console.log(
-                "⚠️ HF_TOKEN MANQUANT — analyse image désactivée."
-            );
-
-        } else {
-
-            console.log(
-                "✅ HF_TOKEN détecté — analyse image disponible."
-            );
-
-        }
-
-        // ====================================================
-        // COMMANDES
-        // ====================================================
-
-        try {
-
-            const guild =
-                await client.guilds.fetch(
-                    GUILD_ID
-                );
-
-            console.log(
-                "🧹 Suppression des anciennes commandes serveur..."
-            );
-
-            await guild.commands.set([]);
-
-            console.log(
-                "✅ Anciennes commandes serveur supprimées."
-            );
-
-        } catch (error) {
-
-            console.error(
-                "❌ Nettoyage commandes :",
-                error.message
-            );
-
-        }
-
-        try {
-
-            console.log(
-                "📡 Enregistrement des commandes globales..."
-            );
-
-            await client.application.commands.set(
-                commands
-            );
-
-            console.log(
-                `✅ ${
-                    commands.length
-                } commandes globales enregistrées.`
-            );
-
-        } catch (error) {
-
-            console.error(
-                "❌ Erreur commandes :",
-                error.message
-            );
-
-        }
-
-        // ====================================================
-        // RGB
-        // ====================================================
-
-        startRGB();
-
-        // ====================================================
-        // HEARTBEAT
-        // ====================================================
-
-        setTimeout(
-            sendHeartbeatToServer,
-            5000
-        );
-
-        console.log(
-            "💓 Heartbeat programmé."
-        );
-
-        console.log(
-            "===================================="
-        );
-
         console.log("");
 
-    }
+        await registerCommands();
 
+        // Première mise à jour du nom
+        updateRGBName();
+
+        // RGB toutes les 7 secondes
+        setInterval(
+            updateRGBName,
+            7000
+        );
+    }
 );
 
 // ============================================================
-// INTERACTIONS
+// RGB NOM DU BOT
+// ============================================================
+
+async function updateRGBName() {
+
+    if (!client.user) {
+        return;
+    }
+
+    try {
+
+        const name =
+            RGB_NAMES[rgbIndex];
+
+        rgbIndex =
+            (rgbIndex + 1) %
+            RGB_NAMES.length;
+
+        for (
+            const guild
+            of client.guilds.cache.values()
+        ) {
+
+            try {
+
+                const me =
+                    guild.members.me;
+
+                if (!me) {
+                    continue;
+                }
+
+                await me.setNickname(
+                    name
+                );
+
+            } catch (error) {
+
+                console.log(
+                    `⚠️ Impossible de changer le pseudo dans ${guild.name}: ${error.message}`
+                );
+            }
+        }
+
+    } catch (error) {
+
+        console.error(
+            "❌ RGB error :",
+            error.message
+        );
+    }
+}
+
+// ============================================================
+// COMMANDES
 // ============================================================
 
 client.on(
-
     "interactionCreate",
-
     async interaction => {
 
+        if (!interaction.isChatInputCommand()) {
+            return;
+        }
+
+        // --------------------------------------------
+        // /uptime
+        // --------------------------------------------
+
         if (
-            !interaction.isChatInputCommand()
+            interaction.commandName ===
+            "uptime"
         ) {
 
-            return;
+            await interaction.reply({
+                content:
+                    `⏱️ **DAVID ANTI** est en ligne depuis **${formatUptime(Date.now() - startTime)}**.`,
+                ephemeral: true
+            });
 
+            return;
         }
+
+        // --------------------------------------------
+        // /botinfo
+        // --------------------------------------------
+
+        if (
+            interaction.commandName ===
+            "botinfo"
+        ) {
+
+            await interaction.reply({
+                content:
+                    `🛡️ **DAVID ANTI**\n\n` +
+                    `🤖 Discord : connecté\n` +
+                    `🌐 Serveurs : ${client.guilds.cache.size}\n` +
+                    `⏱️ Uptime : ${formatUptime(Date.now() - startTime)}\n` +
+                    `📝 Anti-insulte : activé\n` +
+                    `🔞 Anti-NSFW : activé\n` +
+                    `🖼️ Analyse images : ${openai ? "activée" : "désactivée"}\n` +
+                    `💓 Heartbeat : ${heartbeatCount}\n` +
+                    `🖼️ Images analysées : ${imageModerationCount}\n` +
+                    `🚨 Images bloquées : ${imageBlockedCount}`,
+                ephemeral: true
+            });
+
+            return;
+        }
+    }
+);
+
+// ============================================================
+// SUPPRESSION D'UN AVERTISSEMENT APRÈS 5 SECONDES
+// ============================================================
+
+async function deleteWarningAfter5Seconds(
+    warning
+) {
+
+    setTimeout(
+        async () => {
+
+            try {
+
+                await warning.delete();
+
+            } catch {
+                // Le message peut déjà avoir été supprimé.
+            }
+
+        },
+        5000
+    );
+}
+
+// ============================================================
+// TRAITEMENT D'UNE INFRACTION
+// ============================================================
+
+async function handleDetection(
+    message,
+    detection
+) {
+
+    console.log("");
+    console.log(
+        "🚨 =================================="
+    );
+
+    console.log(
+        "🚨 CONTENU INTERDIT DÉTECTÉ"
+    );
+
+    console.log(
+        `👤 Utilisateur : ${message.author.tag}`
+    );
+
+    console.log(
+        `🆔 ID : ${message.author.id}`
+    );
+
+    console.log(
+        `📌 Serveur : ${message.guild.name}`
+    );
+
+    console.log(
+        `📛 Type : ${detection.type}`
+    );
+
+    console.log(
+        `🔎 Détection : ${detection.value || "image"}`
+    );
+
+    console.log(
+        "🚨 =================================="
+    );
+
+    const isOwner =
+        message.author.id ===
+        message.guild.ownerId;
+
+    const isAdminRole =
+        message.member &&
+        message.member.roles.cache.has(
+            ADMIN_ROLE_ID
+        );
+
+    // ========================================================
+    // PROPRIÉTAIRE
+    // ========================================================
+
+    if (isOwner) {
+
+        console.log(
+            `👑 PROPRIÉTAIRE AUTORISÉ | ${message.author.tag}`
+        );
+
+        console.log(
+            "🛡️ Propriété détectée — ne pas tirer."
+        );
 
         try {
 
-            // =================================================
-            // BOTINFO
-            // =================================================
-
-            if (
-                interaction.commandName ===
-                "botinfo"
-            ) {
-
-                const memory =
-                    process.memoryUsage();
-
-                const embed =
-                    new EmbedBuilder()
-
-                        .setColor(
-                            0x5865f2
-                        )
-
-                        .setTitle(
-                            "🤖 DAVID ANTI"
-                        )
-
-                        .setThumbnail(
-                            avatar(
-                                client.user
-                            )
-                        )
-
-                        .addFields(
-
-                            {
-
-                                name:
-                                    "👤 Nom",
-
-                                value:
-                                    client.user.tag,
-
-                                inline:
-                                    true
-
-                            },
-
-                            {
-
-                                name:
-                                    "🆔 ID",
-
-                                value:
-                                    client.user.id,
-
-                                inline:
-                                    true
-
-                            },
-
-                            {
-
-                                name:
-                                    "🟢 Statut",
-
-                                value:
-                                    "ONLINE",
-
-                                inline:
-                                    true
-
-                            },
-
-                            {
-
-                                name:
-                                    "⏱️ Uptime",
-
-                                value:
-                                    formatUptime(
-                                        Date.now() -
-                                        BOT_START_TIME
-                                    ),
-
-                                inline:
-                                    true
-
-                            },
-
-                            {
-
-                                name:
-                                    "📦 Discord.js",
-
-                                value:
-                                    require(
-                                        "discord.js"
-                                    ).version,
-
-                                inline:
-                                    true
-
-                            },
-
-                            {
-
-                                name:
-                                    "🟢 Node.js",
-
-                                value:
-                                    process.version,
-
-                                inline:
-                                    true
-
-                            },
-
-                            {
-
-                                name:
-                                    "💾 RAM",
-
-                                value:
-                                    formatBytes(
-                                        memory.rss
-                                    ),
-
-                                inline:
-                                    true
-
-                            },
-
-                            {
-
-                                name:
-                                    "🌐 Serveurs",
-
-                                value:
-                                    String(
-                                        client
-                                            .guilds
-                                            .cache
-                                            .size
-                                    ),
-
-                                inline:
-                                    true
-
-                            },
-
-                            {
-
-                                name:
-                                    "🛡️ Protection",
-
-                                value:
-                                    "Insultes • NSFW • GORE • Images",
-
-                                inline:
-                                    false
-
-                            }
-
-                        );
-
-                await interaction.reply({
-
-                    embeds: [
-                        embed
-                    ]
-
-                });
-
-                return;
-
-            }
-
-            // =================================================
-            // UPTIME
-            // =================================================
-
-            if (
-                interaction.commandName ===
-                "uptime"
-            ) {
-
-                await interaction.reply({
-
-                    embeds: [
-
-                        new EmbedBuilder()
-
-                            .setColor(
-                                0x00ff66
-                            )
-
-                            .setTitle(
-                                "⏱️ DAVID ANTI UPTIME"
-                            )
-
-                            .setDescription(
-
-                                `DAVID ANTI est en ligne depuis :\n\n**${
-                                    formatUptime(
-                                        Date.now() -
-                                        BOT_START_TIME
-                                    )
-                                }**`
-
-                            )
-
-                    ]
-
-                });
-
-            }
+            const warning =
+                await message.channel.send(
+                    "🛡️ **propriété détecter ne tire pas**"
+                );
+
+            deleteWarningAfter5Seconds(
+                warning
+            );
 
         } catch (error) {
 
             console.error(
-                "❌ Interaction :",
+                "❌ Message propriétaire :",
                 error.message
             );
-
         }
 
+        return;
     }
 
-);
+    // ========================================================
+    // ADMIN / ÉQUIPE
+    // ========================================================
+
+    if (isAdminRole) {
+
+        console.log(
+            `🛡️ ADMIN / ÉQUIPE : ${message.author.tag}`
+        );
+
+        console.log(
+            "🛡️ Ne pas tirer — il est l'un des nôtres."
+        );
+
+        try {
+
+            const warning =
+                await message.channel.send(
+                    "🛡️ **ne tiré pas il est l'un des notre**"
+                );
+
+            deleteWarningAfter5Seconds(
+                warning
+            );
+
+        } catch (error) {
+
+            console.error(
+                "❌ Message admin :",
+                error.message
+            );
+        }
+
+        return;
+    }
+
+    // ========================================================
+    // MEMBRE NORMAL
+    // ========================================================
+
+    console.log(
+        `🎯 CIBLE DÉTECTÉE : ${message.author.tag}`
+    );
+
+    try {
+
+        await message.delete();
+
+        console.log(
+            "🗑️ Message interdit supprimé."
+        );
+
+    } catch (error) {
+
+        console.error(
+            "❌ IMPOSSIBLE DE SUPPRIMER LE MESSAGE"
+        );
+
+        console.error(
+            "❌ Erreur :",
+            error.message
+        );
+
+        console.error(
+            "❌ Code :",
+            error.code || "N/A"
+        );
+
+        return;
+    }
+
+    try {
+
+        const warning =
+            await message.channel.send(
+                `🎯 **cible détecter suppression du message**\n<@${message.author.id}>`
+            );
+
+        console.log(
+            "🎯 Avertissement cible envoyé."
+        );
+
+        deleteWarningAfter5Seconds(
+            warning
+        );
+
+    } catch (error) {
+
+        console.error(
+            "❌ Impossible d'envoyer l'avertissement cible :",
+            error.message
+        );
+    }
+}
 
 // ============================================================
 // MESSAGE CREATE
 // ============================================================
 
 client.on(
-
     "messageCreate",
-
     async message => {
 
-        // ====================================================
-        // IGNORE BOTS
-        // ====================================================
+        // ----------------------------------------------------
+        // Ignorer les bots
+        // ----------------------------------------------------
 
-        if (
-            message.author.bot
-        ) {
-
+        if (message.author.bot) {
             return;
-
         }
-
-        // ====================================================
-        // LOG
-        // ====================================================
 
         console.log(
-
-            `💬 MESSAGE REÇU | ${
-                message.author.tag
-            } | "${message.content}"`
-
+            `💬 MESSAGE REÇU | ${message.author.tag} | "${message.content}"`
         );
 
-        // ====================================================
-        // MP
-        // ====================================================
+        // ----------------------------------------------------
+        // Ignorer les messages privés
+        // ----------------------------------------------------
 
-        if (
-            !message.guild
-        ) {
+        if (!message.guild) {
 
-            return;
-
-        }
-
-        // ====================================================
-        // OWNER
-        // ====================================================
-
-        const isOwner =
-            message.author.id ===
-            message.guild.ownerId;
-
-        // ====================================================
-        // ADMIN
-        // ====================================================
-
-        const isAdminRole =
-            message.member &&
-            message.member.roles.cache.has(
-                ADMIN_ROLE_ID
+            console.log(
+                "ℹ️ Message privé ignoré."
             );
 
-        // ====================================================
-        // DÉTECTION TEXTE
-        // ====================================================
+            return;
+        }
+
+        // ----------------------------------------------------
+        // 1. MODÉRATION DU TEXTE
+        // ----------------------------------------------------
 
         const wordResult =
             containsBlockedWord(
@@ -2090,39 +1128,40 @@ client.on(
 
         let detection =
             wordResult.detected
-                ? wordResult
-                : domainResult;
+                ? {
+                    type: wordResult.type,
+                    value: wordResult.word
+                }
+                : domainResult.detected
+                    ? {
+                        type: domainResult.type,
+                        value: domainResult.domain
+                    }
+                    : null;
 
-        // ====================================================
-        // DÉTECTION IMAGE
-        // ====================================================
+        if (detection) {
 
-        if (
-            !detection.detected
-        ) {
+            await handleDetection(
+                message,
+                detection
+            );
 
-            const imageResult =
-                await moderateMessageImages(
-                    message
-                );
-
-            if (
-                imageResult.detected
-            ) {
-
-                detection =
-                    imageResult;
-
-            }
-
+            return;
         }
 
-        // ====================================================
-        // AUTORISÉ
-        // ====================================================
+        // ----------------------------------------------------
+        // 2. MODÉRATION DES IMAGES
+        // ----------------------------------------------------
+
+        const imageAttachments =
+            [
+                ...message.attachments.values()
+            ].filter(
+                isImageAttachment
+            );
 
         if (
-            !detection.detected
+            imageAttachments.length === 0
         ) {
 
             console.log(
@@ -2130,267 +1169,160 @@ client.on(
             );
 
             return;
-
-        }
-
-        // ====================================================
-        // LOG
-        // ====================================================
-
-        console.log("");
-
-        console.log(
-            "🚨 =================================="
-        );
-
-        console.log(
-            "🚨 CONTENU INTERDIT DÉTECTÉ"
-        );
-
-        console.log(
-            `👤 ${message.author.tag}`
-        );
-
-        console.log(
-            `🆔 ${message.author.id}`
-        );
-
-        console.log(
-            `📛 Type : ${
-                detection.type
-            }`
-        );
-
-        if (
-            detection.word
-        ) {
-
-            console.log(
-                `🔎 Mot : ${
-                    detection.word
-                }`
-            );
-
-        }
-
-        if (
-            detection.label
-        ) {
-
-            console.log(
-                `🤖 IA : ${
-                    detection.label
-                }`
-            );
-
-        }
-
-        if (
-            detection.score
-        ) {
-
-            console.log(
-                `📊 Score : ${
-                    (
-                        detection.score *
-                        100
-                    ).toFixed(2)
-                }%`
-            );
-
         }
 
         console.log(
-            "🚨 =================================="
+            `🖼️ ${imageAttachments.length} image(s) détectée(s).`
         );
 
-        // ====================================================
-        // OWNER
-        // ====================================================
+        // ----------------------------------------------------
+        // Analyse des images une par une
+        // ----------------------------------------------------
 
-        if (
-            isOwner
+        for (
+            const attachment
+            of imageAttachments
         ) {
 
-            console.log(
-                "👑 PROPRIÉTAIRE AUTORISÉ"
-            );
+            // ------------------------------------------------
+            // Limite 20 Mo
+            // ------------------------------------------------
 
-            try {
+            if (
+                attachment.size &&
+                attachment.size > 20 * 1024 * 1024
+            ) {
 
-                const warning =
-                    await message.channel.send(
-                        "🛡️ **propriété détecter ne tire pas**"
-                    );
-
-                setTimeout(
-
-                    async () => {
-
-                        try {
-                            await warning.delete();
-                        } catch {}
-
-                    },
-
-                    5000
-
+                console.log(
+                    `⚠️ Image ignorée (>20 Mo) : ${attachment.name}`
                 );
 
-            } catch (error) {
-
-                console.error(
-                    "❌ Warning owner :",
-                    error.message
-                );
-
+                continue;
             }
 
-            return;
-
-        }
-
-        // ====================================================
-        // ADMIN
-        // ====================================================
-
-        if (
-            isAdminRole
-        ) {
-
-            console.log(
-                "🛡️ MEMBRE DE L'ÉQUIPE AUTORISÉ"
-            );
-
-            try {
-
-                const warning =
-                    await message.channel.send(
-                        "🛡️ **ne tiré pas il est l'un des notre**"
-                    );
-
-                setTimeout(
-
-                    async () => {
-
-                        try {
-                            await warning.delete();
-                        } catch {}
-
-                    },
-
-                    5000
-
+            const result =
+                await moderateImage(
+                    attachment.url
                 );
 
-            } catch (error) {
+            if (!result.available) {
 
-                console.error(
-                    "❌ Warning admin :",
-                    error.message
+                console.log(
+                    "⚠️ Analyse image indisponible."
                 );
 
+                continue;
             }
 
-            return;
+            if (!result.flagged) {
 
-        }
-
-        // ====================================================
-        // CIBLE
-        // ====================================================
-
-        console.log(
-            "🎯 CIBLE DÉTECTÉE"
-        );
-
-        // ====================================================
-        // SUPPRESSION
-        // ====================================================
-
-        try {
-
-            await message.delete();
-
-            console.log(
-                "🗑️ Message supprimé."
-            );
-
-        } catch (error) {
-
-            console.error(
-                "❌ Impossible de supprimer :",
-                error.message
-            );
-
-            return;
-
-        }
-
-        // ====================================================
-        // MESSAGE
-        // ====================================================
-
-        try {
-
-            const warning =
-                await message.channel.send(
-
-                    `🎯 **cible détecter suppression du message**\n<@${message.author.id}>`
-
+                console.log(
+                    `✅ Image autorisée : ${attachment.name}`
                 );
 
-            setTimeout(
+                continue;
+            }
 
-                async () => {
+            // --------------------------------------------
+            // Image interdite
+            // --------------------------------------------
 
-                    try {
+            imageBlockedCount++;
 
-                        await warning.delete();
+            let detectedType =
+                "image interdite";
 
-                    } catch {}
+            if (
+                result.sexual ||
+                result.sexualMinors
+            ) {
 
-                },
+                detectedType =
+                    "image NSFW";
+            }
 
-                5000
+            if (
+                result.violence ||
+                result.graphicViolence
+            ) {
 
+                detectedType =
+                    "image violente / gore";
+            }
+
+            console.log(
+                `🚨 IMAGE BLOQUÉE : ${detectedType}`
             );
 
-        } catch (error) {
-
-            console.error(
-                "❌ Warning cible :",
-                error.message
+            await handleDetection(
+                message,
+                {
+                    type: detectedType,
+                    value: attachment.name
+                }
             );
 
+            // Le message entier est supprimé.
+            // On arrête donc après la première image interdite.
+            return;
         }
 
+        console.log(
+            "✅ Images autorisées."
+        );
     }
-
 );
 
 // ============================================================
-// TOKEN
+// ERREURS DISCORD
 // ============================================================
 
-if (!TOKEN) {
+client.on(
+    "error",
+    error => {
 
-    console.error(
-        "❌ DISCORD_TOKEN est manquant !"
-    );
-
-    process.exit(1);
-
-}
+        console.error(
+            "❌ Discord client error :",
+            error
+        );
+    }
+);
 
 // ============================================================
-// LOGIN
+// WARNINGS
+// ============================================================
+
+process.on(
+    "unhandledRejection",
+    error => {
+
+        console.error(
+            "❌ Unhandled Rejection :",
+            error
+        );
+    }
+);
+
+process.on(
+    "uncaughtException",
+    error => {
+
+        console.error(
+            "❌ Uncaught Exception :",
+            error
+        );
+    }
+);
+
+// ============================================================
+// CONNEXION DISCORD
 // ============================================================
 
 console.log(
-    "🔐 Connexion à Discord..."
+    "🚀 Démarrage de DAVID ANTI..."
 );
 
 client.login(
-    TOKEN
+    DISCORD_TOKEN
 );
+```
