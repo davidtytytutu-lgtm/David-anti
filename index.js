@@ -15,9 +15,9 @@ const TOKEN = process.env.DISCORD_TOKEN;
 
 const GUILD_ID = "1550531386295718060";
 
-// ------------------------------------------------------------
+// ============================================================
 // HEARTBEAT
-// ------------------------------------------------------------
+// ============================================================
 
 const HEARTBEAT_SERVER_URL =
     process.env.HEARTBEAT_SERVER_URL;
@@ -28,20 +28,20 @@ const HEARTBEAT_SECRET =
 const HEARTBEAT_DELAY = 10000;
 const HEARTBEAT_RETRY_DELAY = 30000;
 
-// ------------------------------------------------------------
+// ============================================================
 // RGB
-// ------------------------------------------------------------
+// ============================================================
 
 const RGB_DELAY = 7000;
 
-// ------------------------------------------------------------
+// ============================================================
 // BOT
-// ------------------------------------------------------------
+// ============================================================
 
 const BOT_START_TIME = Date.now();
 
 // ============================================================
-// RGB NAME
+// RGB NAMES
 // ============================================================
 
 const RGB_NAMES = [
@@ -59,7 +59,7 @@ let rgbIndex = 0;
 let rgbStarted = false;
 
 // ============================================================
-// CLIENT DISCORD
+// DISCORD CLIENT
 // ============================================================
 
 const client = new Client({
@@ -76,19 +76,15 @@ const client = new Client({
 // ============================================================
 
 function formatUptime(ms) {
-
     let seconds = Math.floor(ms / 1000);
 
     const days = Math.floor(seconds / 86400);
-
     seconds %= 86400;
 
     const hours = Math.floor(seconds / 3600);
-
     seconds %= 3600;
 
     const minutes = Math.floor(seconds / 60);
-
     seconds %= 60;
 
     const parts = [];
@@ -111,7 +107,6 @@ function formatUptime(ms) {
 }
 
 function formatBytes(bytes) {
-
     if (!bytes) {
         return "0 B";
     }
@@ -124,16 +119,13 @@ function formatBytes(bytes) {
     ];
 
     let i = 0;
-
     let value = bytes;
 
     while (
         value >= 1024 &&
         i < units.length - 1
     ) {
-
         value /= 1024;
-
         i++;
     }
 
@@ -141,18 +133,10 @@ function formatBytes(bytes) {
 }
 
 function avatar(user) {
-
     return user.displayAvatarURL({
         extension: "png",
         size: 256
     });
-}
-
-function sleep(ms) {
-
-    return new Promise(
-        resolve => setTimeout(resolve, ms)
-    );
 }
 
 // ============================================================
@@ -163,7 +147,7 @@ const server = http.createServer(
     (req, res) => {
 
         // ====================================================
-        // HEARTBEAT REÇU
+        // HEARTBEAT ENDPOINT
         // ====================================================
 
         if (req.url === "/heartbeat") {
@@ -181,10 +165,13 @@ const server = http.createServer(
                     "🚫 Heartbeat refusé : secret incorrect"
                 );
 
-                res.writeHead(401, {
-                    "Content-Type":
-                        "application/json; charset=utf-8"
-                });
+                res.writeHead(
+                    401,
+                    {
+                        "Content-Type":
+                            "application/json; charset=utf-8"
+                    }
+                );
 
                 res.end(
                     JSON.stringify({
@@ -201,10 +188,13 @@ const server = http.createServer(
                 "💓 Heartbeat reçu du HEARTBEAT SERVER"
             );
 
-            res.writeHead(200, {
-                "Content-Type":
-                    "application/json; charset=utf-8"
-            });
+            res.writeHead(
+                200,
+                {
+                    "Content-Type":
+                        "application/json; charset=utf-8"
+                }
+            );
 
             res.end(
                 JSON.stringify({
@@ -225,14 +215,16 @@ const server = http.createServer(
 
         if (req.url === "/") {
 
-            res.writeHead(200, {
-                "Content-Type":
-                    "text/html; charset=utf-8"
-            });
+            res.writeHead(
+                200,
+                {
+                    "Content-Type":
+                        "text/html; charset=utf-8"
+                }
+            );
 
             res.end(`
 <!DOCTYPE html>
-
 <html lang="fr">
 
 <head>
@@ -297,10 +289,13 @@ ${formatUptime(
         // 404
         // ====================================================
 
-        res.writeHead(404, {
-            "Content-Type":
-                "application/json; charset=utf-8"
-        });
+        res.writeHead(
+            404,
+            {
+                "Content-Type":
+                    "application/json; charset=utf-8"
+            }
+        );
 
         res.end(
             JSON.stringify({
@@ -354,36 +349,35 @@ async function sendHeartbeatToServer() {
 
     try {
 
-        const response = await fetch(
-            HEARTBEAT_SERVER_URL,
-            {
-                method: "GET",
+        const response =
+            await fetch(
+                HEARTBEAT_SERVER_URL,
+                {
+                    method: "GET",
 
-                headers: {
-                    "Accept":
-                        "application/json",
+                    headers: {
+                        "Accept":
+                            "application/json",
 
-                    "Authorization":
-                        `Bearer ${HEARTBEAT_SECRET || ""}`,
+                        "Authorization":
+                            `Bearer ${
+                                HEARTBEAT_SECRET || ""
+                            }`,
 
-                    "User-Agent":
-                        "DAVID-ANTI"
-                },
+                        "User-Agent":
+                            "DAVID-ANTI"
+                    },
 
-                signal:
-                    AbortSignal.timeout(10000)
-            }
-        );
+                    signal:
+                        AbortSignal.timeout(
+                            10000
+                        )
+                }
+            );
 
         console.log(
             `💓 Réponse heartbeat : HTTP ${response.status}`
         );
-
-        // ----------------------------------------------------
-        // On lit d'abord le texte.
-        // Cela évite "Unexpected token" si le serveur
-        // renvoie accidentellement autre chose que du JSON.
-        // ----------------------------------------------------
 
         const responseText =
             await response.text();
@@ -401,9 +395,10 @@ async function sendHeartbeatToServer() {
 
         try {
 
-            data = JSON.parse(
-                responseText
-            );
+            data =
+                JSON.parse(
+                    responseText
+                );
 
         } catch {
 
@@ -500,12 +495,9 @@ async function changeRGBName() {
         );
 
         if (
-            botMember.nickname === newName
+            botMember.nickname ===
+            newName
         ) {
-
-            console.log(
-                `ℹ️ RGB : nom déjà identique → ${newName}`
-            );
 
             rgbIndex =
                 (
@@ -521,68 +513,9 @@ async function changeRGBName() {
             "DAVID ANTI - RGB"
         );
 
-        await sleep(500);
-
-        let updatedMember =
-            await guild.members.fetch({
-                user: client.user.id,
-                force: true
-            });
-
-        if (
-            updatedMember.nickname === newName
-        ) {
-
-            console.log(
-                `✅ Nom changé → ${newName}`
-            );
-
-        } else {
-
-            console.log(
-                `⚠️ RGB : changement non confirmé → ${newName}`
-            );
-
-            await sleep(1000);
-
-            try {
-
-                await botMember.setNickname(
-                    newName,
-                    "DAVID ANTI - RGB retry"
-                );
-
-            } catch (retryError) {
-
-                console.error(
-                    "❌ RGB retry :",
-                    retryError.message
-                );
-            }
-
-            await sleep(700);
-
-            updatedMember =
-                await guild.members.fetch({
-                    user: client.user.id,
-                    force: true
-                });
-
-            if (
-                updatedMember.nickname === newName
-            ) {
-
-                console.log(
-                    `✅ RGB retry réussi → ${newName}`
-                );
-
-            } else {
-
-                console.log(
-                    `❌ RGB : nom toujours non confirmé → ${newName}`
-                );
-            }
-        }
+        console.log(
+            `✅ Nom changé → ${newName}`
+        );
 
         rgbIndex =
             (
@@ -635,24 +568,243 @@ function startRGB() {
 }
 
 // ============================================================
+// MODERATION
+// ============================================================
+
+// ============================================================
+// MOTS INTERDITS
+// ============================================================
+
+const BLOCKED_WORDS = [
+
+    // --------------------------------------------------------
+    // INSULTES
+    // --------------------------------------------------------
+
+    "connard",
+    "connasse",
+
+    "abruti",
+    "abrutie",
+
+    "idiot",
+    "idiote",
+
+    "imbecile",
+    "crétin",
+    "cretin",
+    "crétine",
+    "cretine",
+
+    "débile",
+    "debile",
+
+    "salaud",
+    "salopard",
+
+    "salop",
+
+    "pute",
+    "putain",
+
+    "merde",
+    "bordel",
+
+    "enculé",
+    "encule",
+    "enculée",
+    "enculee",
+
+    "fdp",
+    "ntm",
+    "tg",
+
+    "ta gueule",
+
+    // --------------------------------------------------------
+    // NSFW
+    // --------------------------------------------------------
+
+    "porn",
+    "porno",
+    "pornographie",
+    "pornographique",
+
+    "xxx",
+    "nsfw",
+
+    "sexcam",
+
+    "nudes",
+    "nude",
+
+    "masturbation",
+    "masturber",
+
+    "pénétration",
+    "penetration",
+
+    // --------------------------------------------------------
+    // CONTENU EXPLICITE
+    // --------------------------------------------------------
+
+    "gore",
+
+    "décapitation",
+    "decapitation",
+
+    "démembrement",
+    "demembrement"
+];
+
+// ============================================================
+// DOMAINES INTERDITS
+// ============================================================
+
+const BLOCKED_DOMAINS = [
+
+    "pornhub",
+    "xvideos",
+    "xnxx",
+    "xhamster",
+    "redtube"
+];
+
+// ============================================================
+// NORMALISATION
+// ============================================================
+
+function normalizeModerationText(text) {
+
+    return text
+        .toLowerCase()
+
+        // Retire les accents
+        .normalize("NFD")
+        .replace(
+            /[\u0300-\u036f]/g,
+            ""
+        )
+
+        // Leetspeak
+        .replace(
+            /[@4]/g,
+            "a"
+        )
+
+        .replace(
+            /[3€]/g,
+            "e"
+        )
+
+        .replace(
+            /[1!|]/g,
+            "i"
+        )
+
+        .replace(
+            /[0]/g,
+            "o"
+        )
+
+        .replace(
+            /[5$]/g,
+            "s"
+        )
+
+        .replace(
+            /[7]/g,
+            "t"
+        )
+
+        // Supprime espaces / ponctuation
+        .replace(
+            /[^a-z0-9]+/g,
+            ""
+        );
+}
+
+// ============================================================
+// DÉTECTION DES MOTS
+// ============================================================
+
+function containsBlockedWord(text) {
+
+    const normalized =
+        normalizeModerationText(
+            text
+        );
+
+    for (
+        const word of BLOCKED_WORDS
+    ) {
+
+        const normalizedWord =
+            normalizeModerationText(
+                word
+            );
+
+        if (
+            normalizedWord &&
+            normalized.includes(
+                normalizedWord
+            )
+        ) {
+
+            return {
+                detected: true,
+                type: "mot interdit",
+                word: word
+            };
+        }
+    }
+
+    return {
+        detected: false
+    };
+}
+
+// ============================================================
+// DÉTECTION DES DOMAINES
+// ============================================================
+
+function containsBlockedDomain(text) {
+
+    const lower =
+        text.toLowerCase();
+
+    for (
+        const domain of BLOCKED_DOMAINS
+    ) {
+
+        if (
+            lower.includes(domain)
+        ) {
+
+            return {
+                detected: true,
+                type: "lien NSFW",
+                domain: domain
+            };
+        }
+    }
+
+    return {
+        detected: false
+    };
+}
+
+// ============================================================
 // SLASH COMMANDS
 // ============================================================
 
 const commands = [
-
-    // --------------------------------------------------------
-    // BOTINFO
-    // --------------------------------------------------------
 
     new SlashCommandBuilder()
         .setName("botinfo")
         .setDescription(
             "🤖 Affiche les informations du bot."
         ),
-
-    // --------------------------------------------------------
-    // UPTIME
-    // --------------------------------------------------------
 
     new SlashCommandBuilder()
         .setName("uptime")
@@ -670,43 +822,58 @@ client.once(
     async () => {
 
         console.log("");
-
+        console.log(
+            "===================================="
+        );
+        console.log(
+            "          DAVID ANTI ONLINE"
+        );
         console.log(
             "===================================="
         );
 
         console.log(
-            "       DAVID ANTI ONLINE"
+            `🤖 Connecté en tant que ${
+                client.user.tag
+            }`
         );
 
         console.log(
-            "===================================="
+            `🆔 ID : ${
+                client.user.id
+            }`
         );
 
         console.log(
-            `🤖 Connecté en tant que ${client.user.tag}`
+            `🌐 Serveurs : ${
+                client.guilds.cache.size
+            }`
         );
 
         console.log(
-            `🆔 ID : ${client.user.id}`
+            `📦 Commandes : ${
+                commands.length
+            }`
         );
 
         console.log(
-            `🌐 Serveurs : ${client.guilds.cache.size}`
-        );
-
-        console.log(
-            `📦 Commandes : ${commands.length}`
-        );
-
-        console.log(
-            `🟢 Node.js : ${process.version}`
+            `🟢 Node.js : ${
+                process.version
+            }`
         );
 
         console.log(
             `🧩 Discord.js : ${
                 require("discord.js").version
             }`
+        );
+
+        console.log(
+            "🛡️ Anti-insulte / Anti-NSFW : ACTIVÉ"
+        );
+
+        console.log(
+            "👑 Propriétaire du serveur : EXEMPTÉ"
         );
 
         // ====================================================
@@ -733,7 +900,7 @@ client.once(
         } catch (error) {
 
             console.error(
-                "❌ Nettoyage des commandes serveur :",
+                "❌ Nettoyage commandes :",
                 error.message
             );
         }
@@ -749,7 +916,9 @@ client.once(
             );
 
             console.log(
-                `✅ ${commands.length} commandes globales enregistrées.`
+                `✅ ${
+                    commands.length
+                } commandes globales enregistrées.`
             );
 
         } catch (error) {
@@ -805,7 +974,9 @@ client.on(
             interaction.commandName;
 
         console.log(
-            `📥 Commande /${command} utilisée par ${interaction.user.tag}`
+            `📥 Commande /${command} utilisée par ${
+                interaction.user.tag
+            }`
         );
 
         try {
@@ -823,13 +994,21 @@ client.on(
 
                 const embed =
                     new EmbedBuilder()
-                        .setColor(0x5865f2)
+
+                        .setColor(
+                            0x5865f2
+                        )
+
                         .setTitle(
                             "🤖 DAVID ANTI"
                         )
+
                         .setThumbnail(
-                            avatar(client.user)
+                            avatar(
+                                client.user
+                            )
                         )
+
                         .addFields(
 
                             {
@@ -892,8 +1071,10 @@ client.on(
                                 name: "🌐 Serveurs",
                                 value:
                                     String(
-                                        client.guilds
-                                            .cache.size
+                                        client
+                                            .guilds
+                                            .cache
+                                            .size
                                     ),
                                 inline: true
                             },
@@ -905,6 +1086,13 @@ client.on(
                                         commands.length
                                     ),
                                 inline: true
+                            },
+
+                            {
+                                name: "🛡️ Protection",
+                                value:
+                                    "Anti-insulte / Anti-NSFW",
+                                inline: false
                             }
                         );
 
@@ -984,293 +1172,223 @@ client.on(
 );
 
 // ============================================================
-// MESSAGE CREATE
-// ============================================================
-
-// ============================================================
-// DAVID ANTI — ANTI-INSULTE / ANTI-NSFW
-// ============================================================
-
-// Mots / expressions surveillés.
-// Cette liste peut être agrandie progressivement.
-const BLOCKED_WORDS = [
-    // =========================
-    // INSULTES
-    // =========================
-    "connard",
-    "connasse",
-    "con",
-    "conne",
-    "abruti",
-    "abrutie",
-    "idiot",
-    "idiote",
-    "imbecile",
-    "imbécile",
-    "crétin",
-    "cretin",
-    "crétine",
-    "cretine",
-    "débile",
-    "debile",
-    "salaud",
-    "salopard",
-    "salop",
-    "salopes",
-    "pute",
-    "putain",
-    "merde",
-    "bordel",
-    "enculé",
-    "encule",
-    "enculée",
-    "enculee",
-    "fdp",
-    "ntm",
-    "tg",
-    "ta gueule",
-
-    // =========================
-    // SEXUEL / NSFW
-    // =========================
-    "porn",
-    "porno",
-    "pornographie",
-    "pornographique",
-    "xxx",
-    "nsfw",
-    "sexcam",
-    "sexe",
-    "sexuel",
-    "sexuelle",
-    "nue",
-    "nu",
-    "nudes",
-    "nude",
-    "masturbation",
-    "masturber",
-    "pénétration",
-    "penetration",
-
-    // =========================
-    // VIOLENCE / CONTENU TRÈS EXPLICITE
-    // =========================
-    "gore",
-    "décapitation",
-    "decapitation",
-    "démembrement",
-    "demembrement"
-];
-
-// Domaines / liens à bloquer.
-// Ajoute ici d'autres domaines si nécessaire.
-const BLOCKED_DOMAINS = [
-    "pornhub",
-    "xvideos",
-    "xnxx",
-    "xhamster",
-    "redtube"
-];
-
-// ============================================================
-// NORMALISATION DU TEXTE
-// ============================================================
-
-function normalizeModerationText(text) {
-    return text
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[@4]/g, "a")
-        .replace(/[3€]/g, "e")
-        .replace(/[1!|]/g, "i")
-        .replace(/[0]/g, "o")
-        .replace(/[5$]/g, "s")
-        .replace(/[7]/g, "t")
-        .replace(/[^a-z0-9]+/g, "");
-}
-
-// ============================================================
-// DÉTECTION
-// ============================================================
-
-function containsBlockedWord(text) {
-    const normalized = normalizeModerationText(text);
-
-    for (const word of BLOCKED_WORDS) {
-        const normalizedWord =
-            normalizeModerationText(word);
-
-        if (
-            normalizedWord &&
-            normalized.includes(normalizedWord)
-        ) {
-            return {
-                detected: true,
-                type: "mot interdit",
-                word
-            };
-        }
-    }
-
-    return {
-        detected: false
-    };
-}
-
-// ============================================================
-// DÉTECTION DES DOMAINES NSFW
-// ============================================================
-
-function containsBlockedDomain(text) {
-    const lower = text.toLowerCase();
-
-    for (const domain of BLOCKED_DOMAINS) {
-        if (lower.includes(domain)) {
-            return {
-                detected: true,
-                type: "lien NSFW",
-                domain
-            };
-        }
-    }
-
-    return {
-        detected: false
-    };
-}
-
-// ============================================================
-// MESSAGE CREATE
+// MESSAGE CREATE — MODÉRATION
 // ============================================================
 
 client.on(
     "messageCreate",
     async message => {
 
-        // ----------------------------------------------------
-        // Ignore les bots
-        // ----------------------------------------------------
-
-        if (message.author.bot) {
-            return;
-        }
-
-        // ----------------------------------------------------
-        // Ignore les messages privés
-        // ----------------------------------------------------
-
-        if (!message.guild) {
-            return;
-        }
-
-        // ----------------------------------------------------
-        // PROPRIÉTAIRE DU SERVEUR = AUTORISÉ
-        // ----------------------------------------------------
-        //
-        // Le propriétaire peut faire des tests sans
-        // déclencher la modération.
-        //
-        // ----------------------------------------------------
+        // ====================================================
+        // IGNORE LES BOTS
+        // ====================================================
 
         if (
-            message.author.id ===
-            message.guild.ownerId
+            message.author.bot
         ) {
+            return;
+        }
+
+        // ====================================================
+        // DEBUG
+        // ====================================================
+
+        console.log(
+            `💬 MESSAGE REÇU | ${
+                message.author.tag
+            } | "${message.content}"`
+        );
+
+        // ====================================================
+        // IGNORE LES MESSAGES PRIVÉS
+        // ====================================================
+
+        if (!message.guild) {
+
             console.log(
-                `👑 Propriétaire autorisé : ${message.author.tag}`
+                "ℹ️ Message privé ignoré."
             );
 
             return;
         }
 
-        // ----------------------------------------------------
-        // Vérification du texte
-        // ----------------------------------------------------
+        // ====================================================
+        // PROPRIÉTAIRE DU SERVEUR
+        // ====================================================
+
+        if (
+            message.author.id ===
+            message.guild.ownerId
+        ) {
+
+            console.log(
+                `👑 PROPRIÉTAIRE AUTORISÉ | ${
+                    message.author.tag
+                } | "${message.content}"`
+            );
+
+            return;
+        }
+
+        // ====================================================
+        // DÉTECTION MOTS
+        // ====================================================
 
         const wordResult =
             containsBlockedWord(
                 message.content
             );
 
+        // ====================================================
+        // DÉTECTION DOMAINES
+        // ====================================================
+
         const domainResult =
             containsBlockedDomain(
                 message.content
             );
+
+        // ====================================================
+        // RÉSULTAT
+        // ====================================================
 
         const detection =
             wordResult.detected
                 ? wordResult
                 : domainResult;
 
-        // ----------------------------------------------------
-        // Rien détecté
-        // ----------------------------------------------------
+        // ====================================================
+        // RIEN À SIGNALER
+        // ====================================================
 
-        if (!detection.detected) {
+        if (
+            !detection.detected
+        ) {
+
+            console.log(
+                "✅ Message autorisé."
+            );
+
             return;
         }
 
-        // ----------------------------------------------------
-        // MESSAGE INTERDIT DÉTECTÉ
-        // ----------------------------------------------------
+        // ====================================================
+        // DÉTECTION
+        // ====================================================
 
+        console.log("");
         console.log(
-            `🚨 CONTENU BLOQUÉ`
+            "🚨 =================================="
         );
 
         console.log(
-            `👤 Utilisateur : ${message.author.tag}`
+            "🚨 CONTENU INTERDIT DÉTECTÉ"
         );
 
         console.log(
-            `📌 Serveur : ${message.guild.name}`
+            `👤 Utilisateur : ${
+                message.author.tag
+            }`
         );
 
         console.log(
-            `📛 Type : ${detection.type}`
+            `🆔 ID : ${
+                message.author.id
+            }`
         );
 
-        // ----------------------------------------------------
-        // SUPPRESSION DU MESSAGE
-        // ----------------------------------------------------
+        console.log(
+            `📌 Serveur : ${
+                message.guild.name
+            }`
+        );
+
+        console.log(
+            `📛 Type : ${
+                detection.type
+            }`
+        );
+
+        console.log(
+            `🔎 Détection : ${
+                detection.word ||
+                detection.domain ||
+                "inconnue"
+            }`
+        );
+
+        console.log(
+            "🚨 =================================="
+        );
+
+        // ====================================================
+        // SUPPRESSION
+        // ====================================================
 
         try {
+
             await message.delete();
 
             console.log(
-                "🗑️ Message supprimé."
+                "🗑️ Message supprimé avec succès."
             );
+
         } catch (error) {
+
             console.error(
-                "❌ Impossible de supprimer le message :",
+                "❌ IMPOSSIBLE DE SUPPRIMER LE MESSAGE"
+            );
+
+            console.error(
+                "❌ Erreur :",
                 error.message
             );
+
+            console.error(
+                "❌ Code :",
+                error.code || "N/A"
+            );
+
+            return;
         }
 
-        // ----------------------------------------------------
-        // RÉPONSE DU BOT
-        // ----------------------------------------------------
+        // ====================================================
+        // RÉPONSE
+        // ====================================================
 
         try {
+
             const warning =
                 await message.channel.send(
                     `🛡️ **propriété détecter ne tire pas**\n<@${message.author.id}>`
                 );
 
-            // Supprime la réponse après 5 secondes
-            // pour éviter de remplir le salon.
+            console.log(
+                "💬 Avertissement envoyé."
+            );
+
+            // ------------------------------------------------
+            // Suppression de l'avertissement après 5 secondes
+            // ------------------------------------------------
 
             setTimeout(
                 async () => {
+
                     try {
+
                         await warning.delete();
+
+                        console.log(
+                            "🗑️ Avertissement supprimé."
+                        );
+
                     } catch {}
                 },
                 5000
             );
 
         } catch (error) {
+
             console.error(
                 "❌ Impossible d'envoyer l'avertissement :",
                 error.message
@@ -1295,5 +1413,9 @@ if (!TOKEN) {
 // ============================================================
 // LOGIN
 // ============================================================
+
+console.log(
+    "🔐 Connexion à Discord..."
+);
 
 client.login(TOKEN);
