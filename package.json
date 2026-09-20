@@ -1,17 +1,17 @@
 {
-  "name": "david-discord-mod",
+  "name": "david-anti",
   "version": "1.0.0",
-  "description": "Bot Discord anti-insulte et anti-NSFW de David",
+  "description": "DAVID ANTI - Discord moderation bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-  "discord.js": "^14.27.0",
-  "express": "^5.1.0",
-  "openai": "^6.0.0"
-}
+    "discord.js": "^14.27.0",
+    "express": "^5.1.0",
+    "openai": "^6.0.0"
+  },
   "engines": {
-    "node": ">=18"
+    "node": "24.x"
   }
 }
