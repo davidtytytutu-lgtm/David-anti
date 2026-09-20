@@ -1,19 +1,24 @@
-// ============================================================
-// DAVID ANTI
-// Discord Anti-Insulte / Anti-NSFW / Anti-Gore
-// Avec analyse automatique des images
-// ============================================================
-
 const {
     Client,
     GatewayIntentBits,
     REST,
     Routes,
-    SlashCommandBuilder
+    SlashCommandBuilder,
+
+    ContainerBuilder,
+    TextDisplayBuilder,
+    SeparatorBuilder,
+    SeparatorSpacingSize,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
+
+    MessageFlags
 } = require("discord.js");
 
 const express = require("express");
 const OpenAI = require("openai");
+
 
 // ============================================================
 // CONFIGURATION
@@ -26,35 +31,55 @@ const HEARTBEAT_SERVER_URL =
     "https://david-beat.onrender.com/heartbeat";
 
 const HEARTBEAT_SECRET =
-    process.env.HEARTBEAT_SECRET;
+    process.env.HEARTBEAT_SECRET || "";
 
 const OPENAI_API_KEY =
-    process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY || "";
 
-const ADMIN_ROLE_ID =
+const TEAM_ROLE_ID =
     "1550561028343865535";
+
+const BOT_ID =
+    "1551260698271813792";
+
+
+// ============================================================
+// CLIENT DISCORD
+// ============================================================
+
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.MessageContent
+    ]
+});
+
+
+// ============================================================
+// EXPRESS
+// ============================================================
+
+const app = express();
 
 const PORT =
     process.env.PORT || 10000;
 
+app.use(express.json());
+
+
 // ============================================================
-// VÉRIFICATIONS
+// VARIABLES
 // ============================================================
 
-if (!DISCORD_TOKEN) {
-    console.error("❌ DISCORD_TOKEN manquant.");
-    process.exit(1);
-}
+const startTime = Date.now();
 
-if (!HEARTBEAT_SECRET) {
-    console.warn("⚠️ HEARTBEAT_SECRET manquant.");
-}
+let heartbeatCount = 0;
 
-if (!OPENAI_API_KEY) {
-    console.warn(
-        "⚠️ OPENAI_API_KEY manquante : analyse des images désactivée."
-    );
-}
+let lastHeartbeatReceived = null;
+
+let lastHeartbeatStatus = "unknown";
+
 
 // ============================================================
 // OPENAI
@@ -66,45 +91,6 @@ const openai = OPENAI_API_KEY
     })
     : null;
 
-// ============================================================
-// DISCORD CLIENT
-// ============================================================
-
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers
-    ]
-});
-
-// ============================================================
-// VARIABLES
-// ============================================================
-
-const startTime = Date.now();
-
-let heartbeatCount = 0;
-let imageModerationCount = 0;
-let imageBlockedCount = 0;
-
-// ============================================================
-// NOMS RGB
-// ============================================================
-
-const RGB_NAMES = [
-    "🔴𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🔴",
-    "🟠𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟠",
-    "🟡𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟡",
-    "🟢𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟢",
-    "🔵𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🔵",
-    "🟣𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟣",
-    "⚫𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢⚫",
-    "🟤𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟤"
-];
-
-let rgbIndex = 0;
 
 // ============================================================
 // MOTS INTERDITS
@@ -129,17 +115,14 @@ const BLOCKED_WORDS = [
     "salaud",
     "salopard",
     "salop",
-
     "pute",
     "putain",
     "merde",
     "bordel",
-
     "enculé",
     "encule",
     "enculée",
     "enculee",
-
     "fdp",
     "ntm",
     "tg",
@@ -152,15 +135,12 @@ const BLOCKED_WORDS = [
     "xxx",
     "nsfw",
     "sexcam",
-
     "nude",
     "nudes",
     "nudité",
     "nudite",
-
     "masturbation",
     "masturber",
-
     "pénétration",
     "penetration",
 
@@ -171,9 +151,6 @@ const BLOCKED_WORDS = [
     "demembrement"
 ];
 
-// ============================================================
-// DOMAINES INTERDITS
-// ============================================================
 
 const BLOCKED_DOMAINS = [
     "pornhub",
@@ -183,11 +160,13 @@ const BLOCKED_DOMAINS = [
     "redtube"
 ];
 
+
 // ============================================================
-// NORMALISATION DU TEXTE
+// NORMALISATION
 // ============================================================
 
 function normalizeModerationText(text) {
+
     return text
         .toLowerCase()
         .normalize("NFD")
@@ -202,430 +181,392 @@ function normalizeModerationText(text) {
         .trim();
 }
 
+
 // ============================================================
-// DÉTECTION DES MOTS
+// DÉTECTION MOTS
 // ============================================================
 
 function containsBlockedWord(text) {
 
-    const cleanedText =
+    const normalized =
         normalizeModerationText(text);
 
     const words =
-        cleanedText
-            .split(/\s+/)
-            .filter(Boolean);
+        normalized.split(/\s+/);
 
-    for (const word of BLOCKED_WORDS) {
+    for (const blocked of BLOCKED_WORDS) {
 
-        const normalizedWord =
-            normalizeModerationText(word);
+        const normalizedBlocked =
+            normalizeModerationText(blocked);
 
-        // Mot exact
-        if (words.includes(normalizedWord)) {
-
-            return {
-                detected: true,
-                type: "mot interdit",
-                word: word
-            };
+        if (words.includes(normalizedBlocked)) {
+            return true;
         }
-    }
 
-    // Détection de variantes séparées
-    // Exemple :
-    // c.o.n.n.a.r.d
-    // c-o-n-n-a-r-d
-    // c o n n a r d
-
-    const compactText =
-        cleanedText.replace(/\s+/g, "");
-
-    for (const word of BLOCKED_WORDS) {
-
-        const normalizedWord =
-            normalizeModerationText(word);
-
-        // On évite les petits mots comme "con"
-        // pour empêcher les faux positifs.
         if (
-            normalizedWord.length >= 4 &&
-            compactText.includes(normalizedWord)
+            normalizedBlocked.length >= 4 &&
+            normalized.includes(normalizedBlocked)
         ) {
-
-            return {
-                detected: true,
-                type: "mot interdit",
-                word: word
-            };
+            return true;
         }
     }
 
-    return {
-        detected: false
-    };
+    return false;
 }
 
+
 // ============================================================
-// DÉTECTION DES DOMAINES
+// DÉTECTION DOMAINES
 // ============================================================
 
 function containsBlockedDomain(text) {
 
-    const lower =
+    const normalized =
         text.toLowerCase();
 
-    for (const domain of BLOCKED_DOMAINS) {
-
-        if (lower.includes(domain)) {
-
-            return {
-                detected: true,
-                type: "lien NSFW",
-                domain: domain
-            };
-        }
-    }
-
-    return {
-        detected: false
-    };
-}
-
-// ============================================================
-// VÉRIFICATION IMAGE
-// ============================================================
-
-function isImageAttachment(attachment) {
-
-    if (
-        attachment.contentType &&
-        attachment.contentType.startsWith("image/")
-    ) {
-        return true;
-    }
-
-    const name =
-        attachment.name?.toLowerCase() || "";
-
-    return (
-        name.endsWith(".jpg") ||
-        name.endsWith(".jpeg") ||
-        name.endsWith(".png") ||
-        name.endsWith(".webp")
+    return BLOCKED_DOMAINS.some(
+        domain =>
+            normalized.includes(domain)
     );
 }
 
-// ============================================================
-// MODÉRATION OPENAI
-// ============================================================
-
-async function moderateImage(imageUrl) {
-
-    if (!openai) {
-
-        console.log(
-            "⚠️ Analyse image ignorée : OPENAI_API_KEY absente."
-        );
-
-        return {
-            available: false,
-            flagged: false
-        };
-    }
-
-    try {
-
-        imageModerationCount++;
-
-        console.log(
-            `🖼️ Analyse image OpenAI #${imageModerationCount}`
-        );
-
-        const moderation =
-            await openai.moderations.create({
-
-                model: "omni-moderation-latest",
-
-                input: [
-                    {
-                        type: "image_url",
-
-                        image_url: {
-                            url: imageUrl
-                        }
-                    }
-                ]
-            });
-
-        const result =
-            moderation.results[0];
-
-        if (!result) {
-
-            console.log(
-                "⚠️ OpenAI n'a renvoyé aucun résultat."
-            );
-
-            return {
-                available: true,
-                flagged: false
-            };
-        }
-
-        const categories =
-            result.categories || {};
-
-        const sexual =
-            Boolean(categories.sexual);
-
-        const sexualMinors =
-            Boolean(categories["sexual/minors"]);
-
-        const violence =
-            Boolean(categories.violence);
-
-        const graphicViolence =
-            Boolean(categories["violence/graphic"]);
-
-        const flagged =
-            Boolean(result.flagged) ||
-            sexual ||
-            sexualMinors ||
-            violence ||
-            graphicViolence;
-
-        console.log(
-            "🔎 Résultat image :",
-            {
-                flagged,
-                sexual,
-                sexualMinors,
-                violence,
-                graphicViolence
-            }
-        );
-
-        return {
-            available: true,
-            flagged,
-            sexual,
-            sexualMinors,
-            violence,
-            graphicViolence
-        };
-
-    } catch (error) {
-
-        console.error(
-            "❌ Erreur OpenAI image :",
-            error.message
-        );
-
-        return {
-            available: false,
-            flagged: false,
-            error: error.message
-        };
-    }
-}
 
 // ============================================================
-// TEMPS DE FONCTIONNEMENT
+// FORMAT UPTIME
 // ============================================================
 
 function formatUptime(ms) {
 
-    const seconds =
+    let seconds =
         Math.floor(ms / 1000);
 
     const days =
         Math.floor(seconds / 86400);
 
+    seconds %= 86400;
+
     const hours =
-        Math.floor((seconds % 86400) / 3600);
+        Math.floor(seconds / 3600);
+
+    seconds %= 3600;
 
     const minutes =
-        Math.floor((seconds % 3600) / 60);
+        Math.floor(seconds / 60);
 
-    const secs =
-        seconds % 60;
+    seconds %= 60;
 
-    return `${days}j ${hours}h ${minutes}m ${secs}s`;
+    const parts = [];
+
+    if (days)
+        parts.push(`${days}j`);
+
+    if (hours)
+        parts.push(`${hours}h`);
+
+    if (minutes)
+        parts.push(`${minutes}m`);
+
+    if (seconds || parts.length === 0)
+        parts.push(`${seconds}s`);
+
+    return parts.join(" ");
 }
 
-// ============================================================
-// SERVEUR HTTP RENDER
-// ============================================================
-
-const app =
-    express();
-
-app.use(
-    express.json()
-);
-
-// Page principale
-app.get(
-    "/",
-    (req, res) => {
-
-        res.status(200).json({
-            bot: "DAVID ANTI",
-            online: true,
-            status: "online",
-            uptime: formatUptime(
-                Date.now() - startTime
-            ),
-            discord: client.isReady()
-                ? "connected"
-                : "connecting",
-            openai: openai
-                ? "enabled"
-                : "disabled"
-        });
-    }
-);
-
-// Health check
-app.get(
-    "/health",
-    (req, res) => {
-
-        res.status(200).json({
-            online: true,
-            bot: "david-anti",
-            uptime: Date.now() - startTime,
-            discord: client.isReady(),
-            heartbeat: heartbeatCount,
-            imageModeration:
-                openai
-                    ? "enabled"
-                    : "disabled"
-        });
-    }
-);
 
 // ============================================================
-// ENDPOINT HEARTBEAT
+// FORMAT MÉMOIRE
 // ============================================================
 
-app.post(
-    "/heartbeat",
-    (req, res) => {
+function formatMemory(bytes) {
 
-        const secret =
-            req.headers["x-heartbeat-secret"];
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
-        if (
-            HEARTBEAT_SECRET &&
-            secret !== HEARTBEAT_SECRET
-        ) {
 
-            return res
-                .status(401)
-                .json({
-                    status: "unauthorized"
-                });
-        }
+// ============================================================
+// LATENCE
+// ============================================================
 
-        heartbeatCount++;
+function getPing() {
 
-        console.log(
-            "💓 HEARTBEAT REÇU"
+    const ping =
+        client.ws.ping;
+
+    if (!Number.isFinite(ping) || ping < 0)
+        return "—";
+
+    return `${Math.round(ping)} ms`;
+}
+
+
+// ============================================================
+// STATUT
+// ============================================================
+
+function getStatus() {
+
+    if (!client.isReady())
+        return {
+            emoji: "🔴",
+            text: "HORS LIGNE"
+        };
+
+    if (client.ws.ping > 500)
+        return {
+            emoji: "🟠",
+            text: "LATENCE ÉLEVÉE"
+        };
+
+    return {
+        emoji: "🟢",
+        text: "OPÉRATIONNEL"
+    };
+}
+
+
+// ============================================================
+// COMPONENTS V2 — SÉPARATEUR
+// ============================================================
+
+function separator() {
+
+    return new SeparatorBuilder()
+        .setDivider(true)
+        .setSpacing(
+            SeparatorSpacingSize.Small
         );
+}
 
-        res.json({
-            status: "ok",
-            bot: "david-anti",
-            online: true,
-            uptime: Date.now() - startTime,
-            heartbeat: heartbeatCount
-        });
-    }
-);
 
 // ============================================================
-// DÉMARRAGE HTTP
+// COMPONENTS V2 — BOTINFO
 // ============================================================
 
-app.listen(
-    PORT,
-    () => {
+function createBotInfoComponents() {
 
-        console.log(
-            `🌐 HTTP server démarré sur le port ${PORT}`
-        );
-    }
-);
+    const status =
+        getStatus();
 
-// ============================================================
-// ENVOI HEARTBEAT VERS DAVID-BEAT
-// ============================================================
+    const memory =
+        process.memoryUsage();
 
-async function sendHeartbeat() {
+    const guildCount =
+        client.guilds.cache.size;
 
-    if (!HEARTBEAT_SERVER_URL) {
-        return;
-    }
+    const container =
+        new ContainerBuilder()
+            .setAccentColor(0x5865F2)
 
-    try {
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        "# 🛡️ DAVID ANTI\n" +
+                        "### Centre d'informations du bot\n" +
+                        `${status.emoji} **${status.text}**`
+                    )
+            )
 
-        const response =
-            await fetch(
-                HEARTBEAT_SERVER_URL,
-                {
-                    method: "POST",
+            .addSeparatorComponents(
+                separator()
+            )
 
-                    headers: {
-                        "Content-Type":
-                            "application/json",
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        "## 🤖 IDENTITÉ\n" +
+                        `**Nom**\n𝐃𝐚𝐯𝐢𝐝 𝐩𝐨𝐥𝐢𝐜𝐞#0704\n\n` +
+                        `**ID**\n\`${BOT_ID}\`\n\n` +
+                        `**Serveurs**\n\`${guildCount}\``
+                    )
+            )
 
-                        "x-heartbeat-secret":
-                            HEARTBEAT_SECRET || ""
-                    },
+            .addSeparatorComponents(
+                separator()
+            )
 
-                    body: JSON.stringify({
-                        bot: "david-anti",
-                        online: true,
-                        uptime:
-                            Date.now() - startTime,
-                        timestamp:
-                            new Date().toISOString()
-                    })
-                }
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        "## ⚙️ SYSTÈME\n" +
+                        `**Node.js**\n\`${process.version}\`\n\n` +
+                        `**Discord.js**\n\`14.27.0\`\n\n` +
+                        `**Latence**\n\`${getPing()}\`\n\n` +
+                        `**Mémoire**\n\`${formatMemory(memory.rss)}\``
+                    )
+            )
+
+            .addSeparatorComponents(
+                separator()
+            )
+
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        "## 🛡️ PROTECTION\n" +
+                        "🟢 **Anti-insulte** — Activé\n" +
+                        "🟢 **Anti-NSFW** — Activé\n" +
+                        "🟢 **Analyse d'images** — " +
+                        `${openai ? "Activée" : "Désactivée"}\n` +
+                        "🟢 **Protection du propriétaire** — Activée\n" +
+                        "🟢 **Protection de l'équipe** — Activée"
+                    )
+            )
+
+            .addSeparatorComponents(
+                separator()
+            )
+
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        "## 💓 HEARTBEAT\n" +
+                        `${lastHeartbeatStatus === "ok"
+                            ? "🟢"
+                            : "🟠"
+                        } **Connexion**\n` +
+                        `Signaux reçus : \`${heartbeatCount}\`\n` +
+                        `Dernier signal : ${lastHeartbeatReceived
+                            ? `<t:${Math.floor(
+                                new Date(lastHeartbeatReceived).getTime() / 1000
+                            )}:R>`
+                            : "Aucun"}`
+                    )
+            )
+
+            .addSeparatorComponents(
+                separator()
+            )
+
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        "-# DAVID ANTI • Système de modération\n" +
+                        `-# Démarré <t:${Math.floor(startTime / 1000)}:R>`
+                    )
             );
 
-        const data =
-            await response.json()
-                .catch(() => ({}));
-
-        console.log(
-            "💓 DAVID ANTI → HEARTBEAT SERVER",
-            response.status,
-            data
-        );
-
-    } catch (error) {
-
-        console.error(
-            "❌ Heartbeat impossible :",
-            error.message
-        );
-    }
+    return [container];
 }
 
-// Premier heartbeat après connexion
-setTimeout(
-    sendHeartbeat,
-    15000
-);
 
-// Puis toutes les 60 secondes
-setInterval(
-    sendHeartbeat,
-    60000
-);
+// ============================================================
+// COMPONENTS V2 — UPTIME
+// ============================================================
+
+function createUptimeComponents() {
+
+    const status =
+        getStatus();
+
+    const uptime =
+        formatUptime(
+            Date.now() - startTime
+        );
+
+    const container =
+        new ContainerBuilder()
+            .setAccentColor(
+                status.text === "OPÉRATIONNEL"
+                    ? 0x57F287
+                    : 0xFEE75C
+            )
+
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        "# 📡 DAVID ANTI — UPTIME\n" +
+                        `### ${status.emoji} ${status.text}\n` +
+                        "État actuel du système"
+                    )
+            )
+
+            .addSeparatorComponents(
+                separator()
+            )
+
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        "## ⏱️ DISPONIBILITÉ\n\n" +
+                        `**Temps en ligne**\n` +
+                        `\`${uptime}\`\n\n` +
+                        `**Démarrage**\n` +
+                        `<t:${Math.floor(startTime / 1000)}:F>\n` +
+                        `<t:${Math.floor(startTime / 1000)}:R>`
+                    )
+            )
+
+            .addSeparatorComponents(
+                separator()
+            )
+
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        "## 📡 CONNEXION\n\n" +
+                        `**WebSocket**\n\`${getPing()}\`\n\n` +
+                        `**Serveurs Discord**\n\`${client.guilds.cache.size}\`\n\n` +
+                        `**État Discord**\n` +
+                        `${client.isReady()
+                            ? "🟢 Connecté"
+                            : "🔴 Déconnecté"}`
+                    )
+            )
+
+            .addSeparatorComponents(
+                separator()
+            )
+
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        "## 💓 HEARTBEAT\n\n" +
+                        `**État**\n` +
+                        `${lastHeartbeatStatus === "ok"
+                            ? "🟢 Opérationnel"
+                            : "🟠 En attente"}\n\n` +
+                        `**Signaux reçus**\n` +
+                        `\`${heartbeatCount}\`\n\n` +
+                        `**Dernier signal**\n` +
+                        `${lastHeartbeatReceived
+                            ? `<t:${Math.floor(
+                                new Date(lastHeartbeatReceived).getTime() / 1000
+                            )}:R>`
+                            : "Aucun"}`
+                    )
+            )
+
+            .addSeparatorComponents(
+                separator()
+            )
+
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        "## 🖥️ ENVIRONNEMENT\n\n" +
+                        `**Node.js** — \`${process.version}\`\n` +
+                        `**discord.js** — \`14.27.0\`\n` +
+                        `**Analyse images** — ${openai
+                            ? "🟢 Active"
+                            : "🔴 Inactive"}`
+                    )
+            )
+
+            .addSeparatorComponents(
+                separator()
+            )
+
+            .addTextDisplayComponents(
+                new TextDisplayBuilder()
+                    .setContent(
+                        `-# Dernière vérification : <t:${Math.floor(Date.now() / 1000)}:R>\n` +
+                        "-# DAVID ANTI • Monitoring"
+                    )
+            );
+
+    return [container];
+}
+
 
 // ============================================================
 // COMMANDES SLASH
@@ -642,60 +583,514 @@ const commands = [
     new SlashCommandBuilder()
         .setName("uptime")
         .setDescription(
-            "Affiche depuis combien de temps DAVID ANTI est en ligne"
+            "Affiche l'état et le temps de fonctionnement"
         )
+];
 
-].map(
-    command => command.toJSON()
-);
 
 // ============================================================
-// ENREGISTREMENT DES COMMANDES
+// ENREGISTREMENT COMMANDES
 // ============================================================
 
 async function registerCommands() {
 
-    try {
+    const rest =
+        new REST({
+            version: "10"
+        }).setToken(DISCORD_TOKEN);
 
-        if (!client.user) {
-            return;
+    await rest.put(
+        Routes.applicationCommands(
+            BOT_ID
+        ),
+        {
+            body: commands.map(
+                command => command.toJSON()
+            )
         }
+    );
 
-        const rest =
-            new REST({
-                version: "10"
-            }).setToken(
-                DISCORD_TOKEN
+    console.log(
+        "✅ Commandes slash enregistrées."
+    );
+}
+
+
+// ============================================================
+// INTERACTIONS
+// ============================================================
+
+client.on(
+    "interactionCreate",
+    async interaction => {
+
+        if (!interaction.isChatInputCommand())
+            return;
+
+        try {
+
+            if (interaction.commandName === "botinfo") {
+
+                await interaction.reply({
+                    components:
+                        createBotInfoComponents(),
+
+                    flags:
+                        MessageFlags.IsComponentsV2
+                });
+
+                return;
+            }
+
+
+            if (interaction.commandName === "uptime") {
+
+                await interaction.reply({
+                    components:
+                        createUptimeComponents(),
+
+                    flags:
+                        MessageFlags.IsComponentsV2
+                });
+
+                return;
+            }
+
+        } catch (error) {
+
+            console.error(
+                "❌ Erreur interaction :",
+                error
             );
 
-        await rest.put(
-            Routes.applicationCommands(
-                client.user.id
-            ),
-            {
-                body: commands
+            if (!interaction.replied) {
+
+                await interaction.reply({
+                    content:
+                        "❌ Une erreur est survenue.",
+                    ephemeral: true
+                });
             }
+        }
+    }
+);
+
+
+// ============================================================
+// IMAGE
+// ============================================================
+
+function isImageAttachment(attachment) {
+
+    if (
+        attachment.contentType &&
+        attachment.contentType.startsWith("image/")
+    ) {
+        return true;
+    }
+
+    return /\.(jpg|jpeg|png|webp)$/i.test(
+        attachment.name || ""
+    );
+}
+
+
+// ============================================================
+// MODÉRATION IMAGE OPENAI
+// ============================================================
+
+async function moderateImage(
+    attachment
+) {
+
+    if (!openai)
+        return false;
+
+    if (
+        attachment.size &&
+        attachment.size > 20 * 1024 * 1024
+    ) {
+        console.log(
+            "⚠️ Image trop grande pour l'analyse."
         );
 
-        console.log(
-            "✅ Commandes slash enregistrées."
+        return false;
+    }
+
+    try {
+
+        const result =
+            await openai.moderations.create({
+                model: "omni-moderation-latest",
+
+                input: [
+                    {
+                        type: "image_url",
+                        image_url: {
+                            url: attachment.url
+                        }
+                    }
+                ]
+            });
+
+        const moderation =
+            result.results?.[0];
+
+        if (!moderation)
+            return false;
+
+        const categories =
+            moderation.categories || {};
+
+        return Boolean(
+            moderation.flagged ||
+            categories.sexual ||
+            categories["sexual/minors"] ||
+            categories.violence ||
+            categories["violence/graphic"]
         );
 
     } catch (error) {
 
         console.error(
-            "❌ Erreur commandes slash :",
+            "❌ Erreur analyse image :",
+            error.message
+        );
+
+        return false;
+    }
+}
+
+
+// ============================================================
+// MODÉRATION MESSAGE
+// ============================================================
+
+client.on(
+    "messageCreate",
+    async message => {
+
+        try {
+
+            if (message.author.bot)
+                return;
+
+            if (!message.guild)
+                return;
+
+
+            let blocked =
+                containsBlockedWord(
+                    message.content
+                ) ||
+                containsBlockedDomain(
+                    message.content
+                );
+
+
+            if (!blocked) {
+
+                for (
+                    const attachment
+                    of message.attachments.values()
+                ) {
+
+                    if (
+                        isImageAttachment(
+                            attachment
+                        )
+                    ) {
+
+                        const flagged =
+                            await moderateImage(
+                                attachment
+                            );
+
+                        if (flagged) {
+                            blocked = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+
+            if (!blocked)
+                return;
+
+
+            const isOwner =
+                message.author.id ===
+                message.guild.ownerId;
+
+
+            const isTeam =
+                message.member?.roles.cache.has(
+                    TEAM_ROLE_ID
+                );
+
+
+            // ================================================
+            // PROPRIÉTAIRE
+            // ================================================
+
+            if (isOwner) {
+
+                const warning =
+                    await message.channel.send(
+                        "🛡️ propriété détecter ne tire pas"
+                    );
+
+                setTimeout(
+                    () => warning.delete().catch(() => {}),
+                    5000
+                );
+
+                return;
+            }
+
+
+            // ================================================
+            // ÉQUIPE
+            // ================================================
+
+            if (isTeam) {
+
+                const warning =
+                    await message.channel.send(
+                        "🛡️ ne tiré pas il est l'un des notre"
+                    );
+
+                setTimeout(
+                    () => warning.delete().catch(() => {}),
+                    5000
+                );
+
+                return;
+            }
+
+
+            // ================================================
+            // UTILISATEUR NORMAL
+            // ================================================
+
+            await message.delete()
+                .catch(() => {});
+
+
+            const warning =
+                await message.channel.send(
+                    "🎯 cible détecter suppression du message"
+                );
+
+            setTimeout(
+                () => warning.delete().catch(() => {}),
+                5000
+            );
+
+        } catch (error) {
+
+            console.error(
+                "❌ Erreur modération :",
+                error
+            );
+        }
+    }
+);
+
+
+// ============================================================
+// HEARTBEAT REÇU
+// ============================================================
+
+app.post(
+    "/heartbeat",
+    (req, res) => {
+
+        const secret =
+            req.headers[
+                "x-heartbeat-secret"
+            ];
+
+        if (
+            HEARTBEAT_SECRET &&
+            secret !== HEARTBEAT_SECRET
+        ) {
+
+            console.log(
+                "🚫 Heartbeat refusé : secret incorrect"
+            );
+
+            return res.status(401).json({
+                status: "unauthorized"
+            });
+        }
+
+
+        heartbeatCount++;
+
+        lastHeartbeatReceived =
+            new Date().toISOString();
+
+        lastHeartbeatStatus =
+            "ok";
+
+
+        console.log("");
+        console.log(
+            "💓 =================================="
+        );
+        console.log(
+            "💓 HEARTBEAT REÇU"
+        );
+        console.log(
+            `💓 Nombre : ${heartbeatCount}`
+        );
+        console.log(
+            `💓 Heure : ${lastHeartbeatReceived}`
+        );
+        console.log(
+            "💓 =================================="
+        );
+
+
+        res.status(200).json({
+
+            status: "ok",
+
+            bot: "david-anti",
+
+            online: client.isReady(),
+
+            uptime:
+                Math.floor(
+                    (Date.now() - startTime) /
+                    1000
+                ),
+
+            heartbeat:
+                heartbeatCount
+        });
+    }
+);
+
+
+// ============================================================
+// ENDPOINT ROOT
+// ============================================================
+
+app.get(
+    "/",
+    (req, res) => {
+
+        res.json({
+
+            service: "DAVID ANTI",
+
+            status:
+                client.isReady()
+                    ? "online"
+                    : "starting",
+
+            bot:
+                client.user?.tag ||
+                "starting",
+
+            uptime:
+                formatUptime(
+                    Date.now() - startTime
+                ),
+
+            heartbeat:
+                heartbeatCount
+        });
+    }
+);
+
+
+// ============================================================
+// DÉMARRAGE HTTP
+// ============================================================
+
+app.listen(
+    PORT,
+    "0.0.0.0",
+    () => {
+
+        console.log(
+            `🌐 HTTP server démarré sur le port ${PORT}`
+        );
+    }
+);
+
+
+// ============================================================
+// HEARTBEAT → DAVID BEAT
+// ============================================================
+
+async function sendHeartbeat() {
+
+    if (!HEARTBEAT_SERVER_URL)
+        return;
+
+    try {
+
+        const response =
+            await fetch(
+                HEARTBEAT_SERVER_URL,
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json",
+
+                        "x-heartbeat-secret":
+                            HEARTBEAT_SECRET
+                    },
+
+                    body: JSON.stringify({
+
+                        bot:
+                            "david-anti",
+
+                        botId:
+                            BOT_ID,
+
+                        timestamp:
+                            new Date().toISOString()
+                    })
+                }
+            );
+
+
+        const data =
+            await response
+                .json()
+                .catch(() => ({}));
+
+
+        console.log(
+            `💓 DAVID ANTI → HEARTBEAT SERVER ${response.status}`,
+            data
+        );
+
+    } catch (error) {
+
+        console.error(
+            "❌ Heartbeat error :",
             error.message
         );
     }
 }
+
 
 // ============================================================
 // READY
 // ============================================================
 
 client.once(
-    "clientReady",
+    "ready",
     async () => {
 
         console.log("");
@@ -726,10 +1121,11 @@ client.once(
         );
 
         console.log(
-            "🖼️ Analyse images :",
-            openai
-                ? "ACTIVÉE"
-                : "DÉSACTIVÉE"
+            `🖼️ Analyse images : ${
+                openai
+                    ? "ACTIVÉE"
+                    : "DÉSACTIVÉE"
+            }`
         );
 
         console.log(
@@ -743,552 +1139,38 @@ client.once(
         console.log(
             "=========================================="
         );
+
         console.log("");
 
-        await registerCommands();
 
-        // Première mise à jour du nom
-        updateRGBName();
+        try {
 
-        // RGB toutes les 7 secondes
+            await registerCommands();
+
+        } catch (error) {
+
+            console.error(
+                "❌ Impossible d'enregistrer les commandes :",
+                error
+            );
+        }
+
+
+        setTimeout(
+            sendHeartbeat,
+            5000
+        );
+
         setInterval(
-            updateRGBName,
-            7000
+            sendHeartbeat,
+            60000
         );
     }
 );
 
-// ============================================================
-// RGB NOM DU BOT
-// ============================================================
-
-async function updateRGBName() {
-
-    if (!client.user) {
-        return;
-    }
-
-    try {
-
-        const name =
-            RGB_NAMES[rgbIndex];
-
-        rgbIndex =
-            (rgbIndex + 1) %
-            RGB_NAMES.length;
-
-        for (
-            const guild
-            of client.guilds.cache.values()
-        ) {
-
-            try {
-
-                const me =
-                    guild.members.me;
-
-                if (!me) {
-                    continue;
-                }
-
-                await me.setNickname(
-                    name
-                );
-
-            } catch (error) {
-
-                console.log(
-                    `⚠️ Impossible de changer le pseudo dans ${guild.name}: ${error.message}`
-                );
-            }
-        }
-
-    } catch (error) {
-
-        console.error(
-            "❌ RGB error :",
-            error.message
-        );
-    }
-}
 
 // ============================================================
-// COMMANDES
-// ============================================================
-
-client.on(
-    "interactionCreate",
-    async interaction => {
-
-        if (!interaction.isChatInputCommand()) {
-            return;
-        }
-
-        // --------------------------------------------
-        // /uptime
-        // --------------------------------------------
-
-        if (
-            interaction.commandName ===
-            "uptime"
-        ) {
-
-            await interaction.reply({
-                content:
-                    `⏱️ **DAVID ANTI** est en ligne depuis **${formatUptime(Date.now() - startTime)}**.`,
-                ephemeral: true
-            });
-
-            return;
-        }
-
-        // --------------------------------------------
-        // /botinfo
-        // --------------------------------------------
-
-        if (
-            interaction.commandName ===
-            "botinfo"
-        ) {
-
-            await interaction.reply({
-                content:
-                    `🛡️ **DAVID ANTI**\n\n` +
-                    `🤖 Discord : connecté\n` +
-                    `🌐 Serveurs : ${client.guilds.cache.size}\n` +
-                    `⏱️ Uptime : ${formatUptime(Date.now() - startTime)}\n` +
-                    `📝 Anti-insulte : activé\n` +
-                    `🔞 Anti-NSFW : activé\n` +
-                    `🖼️ Analyse images : ${openai ? "activée" : "désactivée"}\n` +
-                    `💓 Heartbeat : ${heartbeatCount}\n` +
-                    `🖼️ Images analysées : ${imageModerationCount}\n` +
-                    `🚨 Images bloquées : ${imageBlockedCount}`,
-                ephemeral: true
-            });
-
-            return;
-        }
-    }
-);
-
-// ============================================================
-// SUPPRESSION D'UN AVERTISSEMENT APRÈS 5 SECONDES
-// ============================================================
-
-async function deleteWarningAfter5Seconds(
-    warning
-) {
-
-    setTimeout(
-        async () => {
-
-            try {
-
-                await warning.delete();
-
-            } catch {
-                // Le message peut déjà avoir été supprimé.
-            }
-
-        },
-        5000
-    );
-}
-
-// ============================================================
-// TRAITEMENT D'UNE INFRACTION
-// ============================================================
-
-async function handleDetection(
-    message,
-    detection
-) {
-
-    console.log("");
-    console.log(
-        "🚨 =================================="
-    );
-
-    console.log(
-        "🚨 CONTENU INTERDIT DÉTECTÉ"
-    );
-
-    console.log(
-        `👤 Utilisateur : ${message.author.tag}`
-    );
-
-    console.log(
-        `🆔 ID : ${message.author.id}`
-    );
-
-    console.log(
-        `📌 Serveur : ${message.guild.name}`
-    );
-
-    console.log(
-        `📛 Type : ${detection.type}`
-    );
-
-    console.log(
-        `🔎 Détection : ${detection.value || "image"}`
-    );
-
-    console.log(
-        "🚨 =================================="
-    );
-
-    const isOwner =
-        message.author.id ===
-        message.guild.ownerId;
-
-    const isAdminRole =
-        message.member &&
-        message.member.roles.cache.has(
-            ADMIN_ROLE_ID
-        );
-
-    // ========================================================
-    // PROPRIÉTAIRE
-    // ========================================================
-
-    if (isOwner) {
-
-        console.log(
-            `👑 PROPRIÉTAIRE AUTORISÉ | ${message.author.tag}`
-        );
-
-        console.log(
-            "🛡️ Propriété détectée — ne pas tirer."
-        );
-
-        try {
-
-            const warning =
-                await message.channel.send(
-                    "🛡️ **propriété détecter ne tire pas**"
-                );
-
-            deleteWarningAfter5Seconds(
-                warning
-            );
-
-        } catch (error) {
-
-            console.error(
-                "❌ Message propriétaire :",
-                error.message
-            );
-        }
-
-        return;
-    }
-
-    // ========================================================
-    // ADMIN / ÉQUIPE
-    // ========================================================
-
-    if (isAdminRole) {
-
-        console.log(
-            `🛡️ ADMIN / ÉQUIPE : ${message.author.tag}`
-        );
-
-        console.log(
-            "🛡️ Ne pas tirer — il est l'un des nôtres."
-        );
-
-        try {
-
-            const warning =
-                await message.channel.send(
-                    "🛡️ **ne tiré pas il est l'un des notre**"
-                );
-
-            deleteWarningAfter5Seconds(
-                warning
-            );
-
-        } catch (error) {
-
-            console.error(
-                "❌ Message admin :",
-                error.message
-            );
-        }
-
-        return;
-    }
-
-    // ========================================================
-    // MEMBRE NORMAL
-    // ========================================================
-
-    console.log(
-        `🎯 CIBLE DÉTECTÉE : ${message.author.tag}`
-    );
-
-    try {
-
-        await message.delete();
-
-        console.log(
-            "🗑️ Message interdit supprimé."
-        );
-
-    } catch (error) {
-
-        console.error(
-            "❌ IMPOSSIBLE DE SUPPRIMER LE MESSAGE"
-        );
-
-        console.error(
-            "❌ Erreur :",
-            error.message
-        );
-
-        console.error(
-            "❌ Code :",
-            error.code || "N/A"
-        );
-
-        return;
-    }
-
-    try {
-
-        const warning =
-            await message.channel.send(
-                `🎯 **cible détecter suppression du message**\n<@${message.author.id}>`
-            );
-
-        console.log(
-            "🎯 Avertissement cible envoyé."
-        );
-
-        deleteWarningAfter5Seconds(
-            warning
-        );
-
-    } catch (error) {
-
-        console.error(
-            "❌ Impossible d'envoyer l'avertissement cible :",
-            error.message
-        );
-    }
-}
-
-// ============================================================
-// MESSAGE CREATE
-// ============================================================
-
-client.on(
-    "messageCreate",
-    async message => {
-
-        // ----------------------------------------------------
-        // Ignorer les bots
-        // ----------------------------------------------------
-
-        if (message.author.bot) {
-            return;
-        }
-
-        console.log(
-            `💬 MESSAGE REÇU | ${message.author.tag} | "${message.content}"`
-        );
-
-        // ----------------------------------------------------
-        // Ignorer les messages privés
-        // ----------------------------------------------------
-
-        if (!message.guild) {
-
-            console.log(
-                "ℹ️ Message privé ignoré."
-            );
-
-            return;
-        }
-
-        // ----------------------------------------------------
-        // 1. MODÉRATION DU TEXTE
-        // ----------------------------------------------------
-
-        const wordResult =
-            containsBlockedWord(
-                message.content
-            );
-
-        const domainResult =
-            containsBlockedDomain(
-                message.content
-            );
-
-        let detection =
-            wordResult.detected
-                ? {
-                    type: wordResult.type,
-                    value: wordResult.word
-                }
-                : domainResult.detected
-                    ? {
-                        type: domainResult.type,
-                        value: domainResult.domain
-                    }
-                    : null;
-
-        if (detection) {
-
-            await handleDetection(
-                message,
-                detection
-            );
-
-            return;
-        }
-
-        // ----------------------------------------------------
-        // 2. MODÉRATION DES IMAGES
-        // ----------------------------------------------------
-
-        const imageAttachments =
-            [
-                ...message.attachments.values()
-            ].filter(
-                isImageAttachment
-            );
-
-        if (
-            imageAttachments.length === 0
-        ) {
-
-            console.log(
-                "✅ Message autorisé."
-            );
-
-            return;
-        }
-
-        console.log(
-            `🖼️ ${imageAttachments.length} image(s) détectée(s).`
-        );
-
-        // ----------------------------------------------------
-        // Analyse des images une par une
-        // ----------------------------------------------------
-
-        for (
-            const attachment
-            of imageAttachments
-        ) {
-
-            // ------------------------------------------------
-            // Limite 20 Mo
-            // ------------------------------------------------
-
-            if (
-                attachment.size &&
-                attachment.size > 20 * 1024 * 1024
-            ) {
-
-                console.log(
-                    `⚠️ Image ignorée (>20 Mo) : ${attachment.name}`
-                );
-
-                continue;
-            }
-
-            const result =
-                await moderateImage(
-                    attachment.url
-                );
-
-            if (!result.available) {
-
-                console.log(
-                    "⚠️ Analyse image indisponible."
-                );
-
-                continue;
-            }
-
-            if (!result.flagged) {
-
-                console.log(
-                    `✅ Image autorisée : ${attachment.name}`
-                );
-
-                continue;
-            }
-
-            // --------------------------------------------
-            // Image interdite
-            // --------------------------------------------
-
-            imageBlockedCount++;
-
-            let detectedType =
-                "image interdite";
-
-            if (
-                result.sexual ||
-                result.sexualMinors
-            ) {
-
-                detectedType =
-                    "image NSFW";
-            }
-
-            if (
-                result.violence ||
-                result.graphicViolence
-            ) {
-
-                detectedType =
-                    "image violente / gore";
-            }
-
-            console.log(
-                `🚨 IMAGE BLOQUÉE : ${detectedType}`
-            );
-
-            await handleDetection(
-                message,
-                {
-                    type: detectedType,
-                    value: attachment.name
-                }
-            );
-
-            // Le message entier est supprimé.
-            // On arrête donc après la première image interdite.
-            return;
-        }
-
-        console.log(
-            "✅ Images autorisées."
-        );
-    }
-);
-
-// ============================================================
-// ERREURS DISCORD
-// ============================================================
-
-client.on(
-    "error",
-    error => {
-
-        console.error(
-            "❌ Discord client error :",
-            error
-        );
-    }
-);
-
-// ============================================================
-// WARNINGS
+// ERREURS
 // ============================================================
 
 process.on(
@@ -1302,6 +1184,7 @@ process.on(
     }
 );
 
+
 process.on(
     "uncaughtException",
     error => {
@@ -1313,13 +1196,20 @@ process.on(
     }
 );
 
+
 // ============================================================
-// CONNEXION DISCORD
+// CONNEXION
 // ============================================================
 
-console.log(
-    "🚀 Démarrage de DAVID ANTI..."
-);
+if (!DISCORD_TOKEN) {
+
+    console.error(
+        "❌ DISCORD_TOKEN manquant."
+    );
+
+    process.exit(1);
+}
+
 
 client.login(
     DISCORD_TOKEN
