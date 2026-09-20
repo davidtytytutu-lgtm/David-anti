@@ -37,20 +37,44 @@ const HEARTBEAT_DELAY = 10000;
 const HEARTBEAT_RETRY_DELAY = 30000;
 
 // ============================================================
+// IMAGE MODERATION
+// ============================================================
+
+const HF_TOKEN =
+    process.env.HF_TOKEN;
+
+// Modèle :
+// SFW / NSFW / NSFL
+//
+// NSFW = contenu sexuel/adulte
+// NSFL = gore / contenu violent
+//
+// L'URL peut être modifiée via Render si nécessaire.
+
+const IMAGE_MODEL =
+    process.env.IMAGE_MODEL ||
+    "OwenElliott/image-safety-classifier-m";
+
+const IMAGE_API_URL =
+    process.env.IMAGE_API_URL ||
+    `https://router.huggingface.co/hf-inference/models/${IMAGE_MODEL}`;
+
+// Score à partir duquel l'image est considérée interdite.
+
+const NSFW_THRESHOLD = 0.70;
+
+const NSFL_THRESHOLD = 0.70;
+
+// Taille maximale analysée : 10 MB
+
+const MAX_IMAGE_SIZE =
+    10 * 1024 * 1024;
+
+// ============================================================
 // RGB
 // ============================================================
 
 const RGB_DELAY = 7000;
-
-// ============================================================
-// BOT START TIME
-// ============================================================
-
-const BOT_START_TIME = Date.now();
-
-// ============================================================
-// RGB NAMES
-// ============================================================
 
 const RGB_NAMES = [
 
@@ -64,11 +88,9 @@ const RGB_NAMES = [
 
     "🔵𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🔵",
 
-    "⚫𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢⚫",
+    "🟣𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟣",
 
-    "🟤𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟤",
-
-    "🟣𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢🟣"
+    "⚫𝐃𝐚𝐯𝐢𝐝 𝐀𝐧𝐭𝐢⚫"
 
 ];
 
@@ -77,7 +99,13 @@ let rgbIndex = 0;
 let rgbStarted = false;
 
 // ============================================================
-// DISCORD CLIENT
+// START TIME
+// ============================================================
+
+const BOT_START_TIME = Date.now();
+
+// ============================================================
+// CLIENT
 // ============================================================
 
 const client = new Client({
@@ -97,7 +125,7 @@ const client = new Client({
 });
 
 // ============================================================
-// HELPERS
+// UPTIME
 // ============================================================
 
 function formatUptime(ms) {
@@ -106,62 +134,44 @@ function formatUptime(ms) {
         Math.floor(ms / 1000);
 
     const days =
-        Math.floor(
-            seconds / 86400
-        );
+        Math.floor(seconds / 86400);
 
     seconds %= 86400;
 
     const hours =
-        Math.floor(
-            seconds / 3600
-        );
+        Math.floor(seconds / 3600);
 
     seconds %= 3600;
 
     const minutes =
-        Math.floor(
-            seconds / 60
-        );
+        Math.floor(seconds / 60);
 
     seconds %= 60;
 
     const parts = [];
 
-    if (days) {
-        parts.push(
-            `${days}j`
-        );
-    }
+    if (days)
+        parts.push(`${days}j`);
 
-    if (hours) {
-        parts.push(
-            `${hours}h`
-        );
-    }
+    if (hours)
+        parts.push(`${hours}h`);
 
-    if (minutes) {
-        parts.push(
-            `${minutes}m`
-        );
-    }
+    if (minutes)
+        parts.push(`${minutes}m`);
 
-    parts.push(
-        `${seconds}s`
-    );
+    parts.push(`${seconds}s`);
 
     return parts.join(" ");
 }
 
 // ============================================================
-// FORMAT RAM
+// BYTES
 // ============================================================
 
 function formatBytes(bytes) {
 
-    if (!bytes) {
+    if (!bytes)
         return "0 B";
-    }
 
     const units = [
         "B",
@@ -186,6 +196,7 @@ function formatBytes(bytes) {
     }
 
     return `${value.toFixed(2)} ${units[i]}`;
+
 }
 
 // ============================================================
@@ -217,8 +228,7 @@ const server =
             // =================================================
 
             if (
-                req.url ===
-                "/heartbeat"
+                req.url === "/heartbeat"
             ) {
 
                 const authorization =
@@ -231,7 +241,7 @@ const server =
                 ) {
 
                     console.log(
-                        "🚫 Heartbeat refusé : secret incorrect"
+                        "🚫 Heartbeat refusé."
                     );
 
                     res.writeHead(
@@ -249,16 +259,12 @@ const server =
                                 "unauthorized",
 
                             heartbeat:
-                                false,
-
-                            bot:
-                                "DAVID-ANTI"
+                                false
 
                         })
                     );
 
                     return;
-
                 }
 
                 console.log(
@@ -299,7 +305,7 @@ const server =
             }
 
             // =================================================
-            // PAGE PRINCIPALE
+            // PAGE
             // =================================================
 
             if (
@@ -330,34 +336,33 @@ const server =
 
 body {
 
-    background: #050505;
+    background:#050505;
 
-    color: #00ff66;
+    color:#00ff66;
 
-    font-family: monospace;
+    font-family:monospace;
 
-    text-align: center;
+    text-align:center;
 
-    padding-top: 80px;
+    padding-top:80px;
 
 }
 
 .box {
 
-    border:
-        1px solid #00ff66;
+    border:1px solid #00ff66;
 
-    padding: 30px;
+    padding:30px;
 
-    max-width: 600px;
+    max-width:600px;
 
-    margin: auto;
+    margin:auto;
 
 }
 
 h1 {
 
-    font-size: 42px;
+    font-size:42px;
 
 }
 
@@ -373,7 +378,7 @@ h1 {
 
 <p>🟢 ONLINE</p>
 
-<p>Discord moderation bot actif.</p>
+<p>Anti-insulte / Anti-NSFW / Anti-GORE</p>
 
 <p>
 
@@ -395,7 +400,6 @@ ${formatUptime(
 `);
 
                 return;
-
             }
 
             // =================================================
@@ -406,16 +410,14 @@ ${formatUptime(
                 404,
                 {
                     "Content-Type":
-                        "application/json; charset=utf-8"
+                        "application/json"
                 }
             );
 
             res.end(
                 JSON.stringify({
-
                     error:
                         "Not Found"
-
                 })
             );
 
@@ -423,7 +425,7 @@ ${formatUptime(
     );
 
 // ============================================================
-// START HTTP
+// HTTP START
 // ============================================================
 
 server.listen(
@@ -449,7 +451,7 @@ server.listen(
 );
 
 // ============================================================
-// HEARTBEAT → DAVID-BEAT
+// HEARTBEAT
 // ============================================================
 
 async function sendHeartbeatToServer() {
@@ -459,19 +461,15 @@ async function sendHeartbeatToServer() {
     ) {
 
         console.error(
-            "❌ HEARTBEAT_SERVER_URL n'est pas configuré."
+            "❌ HEARTBEAT_SERVER_URL manquant."
         );
 
         setTimeout(
-
             sendHeartbeatToServer,
-
             HEARTBEAT_RETRY_DELAY
-
         );
 
         return;
-
     }
 
     console.log(
@@ -482,9 +480,7 @@ async function sendHeartbeatToServer() {
 
         const response =
             await fetch(
-
                 HEARTBEAT_SERVER_URL,
-
                 {
 
                     method:
@@ -512,18 +508,15 @@ async function sendHeartbeatToServer() {
                         )
 
                 }
-
             );
 
         console.log(
-
             `💓 Réponse heartbeat : HTTP ${
                 response.status
             }`
-
         );
 
-        const responseText =
+        const text =
             await response.text();
 
         if (
@@ -531,16 +524,7 @@ async function sendHeartbeatToServer() {
         ) {
 
             throw new Error(
-
-                `HTTP ${
-                    response.status
-                } : ${
-                    responseText.slice(
-                        0,
-                        200
-                    )
-                }`
-
+                `HTTP ${response.status}`
             );
 
         }
@@ -550,31 +534,12 @@ async function sendHeartbeatToServer() {
         try {
 
             data =
-                JSON.parse(
-                    responseText
-                );
+                JSON.parse(text);
 
         } catch {
 
             throw new Error(
-
-                `Réponse non-JSON reçue : ${
-                    responseText.slice(
-                        0,
-                        200
-                    )
-                }`
-
-            );
-
-        }
-
-        if (
-            data.status !== "ok"
-        ) {
-
-            throw new Error(
-                "Heartbeat refusé par le serveur."
+                "Réponse heartbeat non-JSON"
             );
 
         }
@@ -585,38 +550,20 @@ async function sendHeartbeatToServer() {
         );
 
         setTimeout(
-
             sendHeartbeatToServer,
-
             HEARTBEAT_DELAY
-
         );
 
     } catch (error) {
 
         console.error(
-
             "❌ Heartbeat échoué :",
-
             error.message
-
-        );
-
-        console.log(
-
-            `🔄 Nouvelle tentative dans ${
-                HEARTBEAT_RETRY_DELAY /
-                1000
-            } secondes...`
-
         );
 
         setTimeout(
-
             sendHeartbeatToServer,
-
             HEARTBEAT_RETRY_DELAY
-
         );
 
     }
@@ -624,7 +571,7 @@ async function sendHeartbeatToServer() {
 }
 
 // ============================================================
-// RGB NAME
+// RGB
 // ============================================================
 
 async function changeRGBName() {
@@ -636,79 +583,28 @@ async function changeRGBName() {
                 GUILD_ID
             );
 
-        if (!guild) {
-
-            console.error(
-                "❌ RGB : serveur introuvable."
-            );
-
-            return;
-
-        }
-
         const botMember =
             await guild.members.fetch(
-
                 client.user.id,
-
                 {
                     force: true
                 }
-
             );
-
-        if (!botMember) {
-
-            console.error(
-                "❌ RGB : membre bot introuvable."
-            );
-
-            return;
-
-        }
 
         const newName =
-            RGB_NAMES[
-                rgbIndex
-            ];
+            RGB_NAMES[rgbIndex];
 
         console.log(
-
-            `🌈 Changement du nom → ${
-                newName
-            }`
-
+            `🌈 Changement du nom → ${newName}`
         );
-
-        if (
-            botMember.nickname ===
-            newName
-        ) {
-
-            rgbIndex =
-                (
-                    rgbIndex + 1
-                ) %
-                RGB_NAMES.length;
-
-            return;
-
-        }
 
         await botMember.setNickname(
-
             newName,
-
             "DAVID ANTI - RGB"
-
         );
 
         console.log(
-
-            `✅ Nom changé → ${
-                newName
-            }`
-
+            `✅ Nom changé → ${newName}`
         );
 
         rgbIndex =
@@ -720,20 +616,8 @@ async function changeRGBName() {
     } catch (error) {
 
         console.error(
-
             "❌ RGB erreur :",
-
             error.message
-
-        );
-
-        console.error(
-
-            "❌ RGB code :",
-
-            error.code ||
-            "N/A"
-
         );
 
         rgbIndex =
@@ -752,9 +636,8 @@ async function changeRGBName() {
 
 function startRGB() {
 
-    if (rgbStarted) {
+    if (rgbStarted)
         return;
-    }
 
     rgbStarted = true;
 
@@ -765,11 +648,8 @@ function startRGB() {
     changeRGBName();
 
     setInterval(
-
         changeRGBName,
-
         RGB_DELAY
-
     );
 
 }
@@ -779,10 +659,6 @@ function startRGB() {
 // ============================================================
 
 const BLOCKED_WORDS = [
-
-    // --------------------------------------------------------
-    // INSULTES
-    // --------------------------------------------------------
 
     "con",
     "conne",
@@ -798,6 +674,7 @@ const BLOCKED_WORDS = [
     "imbecile",
     "crétin",
     "cretin",
+
     "crétine",
     "cretine",
 
@@ -826,13 +703,10 @@ const BLOCKED_WORDS = [
 
     "ta gueule",
 
-    // --------------------------------------------------------
-    // NSFW
-    // --------------------------------------------------------
+    // NSFW texte
 
     "porn",
     "porno",
-
     "pornographie",
     "pornographique",
 
@@ -850,9 +724,7 @@ const BLOCKED_WORDS = [
     "pénétration",
     "penetration",
 
-    // --------------------------------------------------------
-    // GORE
-    // --------------------------------------------------------
+    // GORE texte
 
     "gore",
 
@@ -935,24 +807,20 @@ function normalizeModerationText(text) {
 }
 
 // ============================================================
-// DÉTECTION MOTS
+// MOTS
 // ============================================================
 
 function containsBlockedWord(text) {
 
-    const cleanedText =
+    const cleaned =
         normalizeModerationText(
             text
         );
 
     const words =
-        cleanedText
+        cleaned
             .split(/\s+/)
             .filter(Boolean);
-
-    // --------------------------------------------------------
-    // MOTS ENTIERS
-    // --------------------------------------------------------
 
     for (
         const word of BLOCKED_WORDS
@@ -977,8 +845,7 @@ function containsBlockedWord(text) {
                 type:
                     "mot interdit",
 
-                word:
-                    word
+                word
 
             };
 
@@ -986,12 +853,8 @@ function containsBlockedWord(text) {
 
     }
 
-    // --------------------------------------------------------
-    // VARIANTES AVEC SÉPARATEURS
-    // --------------------------------------------------------
-
-    const compactText =
-        cleanedText.replace(
+    const compact =
+        cleaned.replace(
             /\s+/g,
             ""
         );
@@ -1005,12 +868,9 @@ function containsBlockedWord(text) {
                 word
             );
 
-        // Évite les faux positifs
-        // pour les mots très courts.
-
         if (
             normalizedWord.length >= 4 &&
-            compactText.includes(
+            compact.includes(
                 normalizedWord
             )
         ) {
@@ -1023,8 +883,7 @@ function containsBlockedWord(text) {
                 type:
                     "mot interdit",
 
-                word:
-                    word
+                word
 
             };
 
@@ -1033,16 +892,14 @@ function containsBlockedWord(text) {
     }
 
     return {
-
         detected:
             false
-
     };
 
 }
 
 // ============================================================
-// DÉTECTION DOMAINES
+// DOMAINES
 // ============================================================
 
 function containsBlockedDomain(text) {
@@ -1068,8 +925,614 @@ function containsBlockedDomain(text) {
                 type:
                     "lien NSFW",
 
-                domain:
-                    domain
+                domain
+
+            };
+
+        }
+
+    }
+
+    return {
+        detected:
+            false
+    };
+
+}
+
+// ============================================================
+// IMAGE : TYPE
+// ============================================================
+
+function isImageAttachment(attachment) {
+
+    if (
+        attachment.contentType &&
+        attachment.contentType
+            .toLowerCase()
+            .startsWith("image/")
+    ) {
+
+        return true;
+
+    }
+
+    const name =
+        (
+            attachment.name ||
+            ""
+        ).toLowerCase();
+
+    return (
+
+        name.endsWith(".jpg") ||
+
+        name.endsWith(".jpeg") ||
+
+        name.endsWith(".png") ||
+
+        name.endsWith(".webp") ||
+
+        name.endsWith(".gif") ||
+
+        name.endsWith(".bmp")
+
+    );
+
+}
+
+// ============================================================
+// IMAGE : MODÉRATION IA
+// ============================================================
+
+async function moderateImage(
+    attachment
+) {
+
+    // ========================================================
+    // TOKEN
+    // ========================================================
+
+    if (!HF_TOKEN) {
+
+        console.error(
+            "❌ HF_TOKEN n'est pas configuré."
+        );
+
+        return {
+
+            detected:
+                false,
+
+            error:
+                true,
+
+            reason:
+                "HF_TOKEN_MISSING"
+
+        };
+
+    }
+
+    // ========================================================
+    // TAILLE
+    // ========================================================
+
+    if (
+        attachment.size &&
+        attachment.size >
+        MAX_IMAGE_SIZE
+    ) {
+
+        console.log(
+
+            `⚠️ Image ignorée car trop grande : ${
+                formatBytes(
+                    attachment.size
+                )
+            }`
+
+        );
+
+        return {
+
+            detected:
+                false,
+
+            skipped:
+                true,
+
+            reason:
+                "IMAGE_TOO_LARGE"
+
+        };
+
+    }
+
+    console.log("");
+
+    console.log(
+        "🖼️ ANALYSE IMAGE"
+    );
+
+    console.log(
+        `📁 Nom : ${attachment.name}`
+    );
+
+    console.log(
+        `📦 Taille : ${
+            formatBytes(
+                attachment.size
+            )
+        }`
+    );
+
+    console.log(
+        `🤖 Modèle : ${IMAGE_MODEL}`
+    );
+
+    try {
+
+        // ====================================================
+        // TÉLÉCHARGEMENT
+        // ====================================================
+
+        const imageResponse =
+            await fetch(
+                attachment.url,
+                {
+
+                    signal:
+                        AbortSignal.timeout(
+                            15000
+                        )
+
+                }
+            );
+
+        if (
+            !imageResponse.ok
+        ) {
+
+            throw new Error(
+
+                `Téléchargement image HTTP ${
+                    imageResponse.status
+                }`
+
+            );
+
+        }
+
+        const contentLength =
+            Number(
+                imageResponse.headers
+                    .get(
+                        "content-length"
+                    ) ||
+                    0
+            );
+
+        if (
+            contentLength >
+            MAX_IMAGE_SIZE
+        ) {
+
+            return {
+
+                detected:
+                    false,
+
+                skipped:
+                    true,
+
+                reason:
+                    "IMAGE_TOO_LARGE"
+
+            };
+
+        }
+
+        const imageBuffer =
+            Buffer.from(
+                await imageResponse.arrayBuffer()
+            );
+
+        if (
+            imageBuffer.length >
+            MAX_IMAGE_SIZE
+        ) {
+
+            return {
+
+                detected:
+                    false,
+
+                skipped:
+                    true,
+
+                reason:
+                    "IMAGE_TOO_LARGE"
+
+            };
+
+        }
+
+        // ====================================================
+        // ENVOI AU MODÈLE
+        // ====================================================
+
+        const aiResponse =
+            await fetch(
+                IMAGE_API_URL,
+                {
+
+                    method:
+                        "POST",
+
+                    headers: {
+
+                        "Authorization":
+                            `Bearer ${HF_TOKEN}`,
+
+                        "Content-Type":
+                            attachment.contentType ||
+                            "application/octet-stream",
+
+                        "Accept":
+                            "application/json"
+
+                    },
+
+                    body:
+                        imageBuffer,
+
+                    signal:
+                        AbortSignal.timeout(
+                            30000
+                        )
+
+                }
+            );
+
+        const responseText =
+            await aiResponse.text();
+
+        if (
+            !aiResponse.ok
+        ) {
+
+            throw new Error(
+
+                `Hugging Face HTTP ${
+                    aiResponse.status
+                } : ${
+                    responseText.slice(
+                        0,
+                        300
+                    )
+                }`
+
+            );
+
+        }
+
+        let results;
+
+        try {
+
+            results =
+                JSON.parse(
+                    responseText
+                );
+
+        } catch {
+
+            throw new Error(
+                "Réponse IA invalide."
+            );
+
+        }
+
+        // ====================================================
+        // NORMALISATION RÉSULTATS
+        // ====================================================
+
+        let predictions = [];
+
+        if (
+            Array.isArray(results)
+        ) {
+
+            predictions =
+                results;
+
+        } else if (
+            results &&
+            Array.isArray(
+                results.predictions
+            )
+        ) {
+
+            predictions =
+                results.predictions;
+
+        }
+
+        // Certains modèles peuvent
+        // renvoyer des tableaux imbriqués.
+
+        if (
+            predictions.length === 1 &&
+            Array.isArray(
+                predictions[0]
+            )
+        ) {
+
+            predictions =
+                predictions[0];
+
+        }
+
+        console.log(
+            "🤖 Résultats IA :",
+            predictions
+        );
+
+        // ====================================================
+        // SCORES
+        // ====================================================
+
+        let nsfwScore = 0;
+
+        let nsflScore = 0;
+
+        let sfwScore = 0;
+
+        for (
+            const prediction
+            of predictions
+        ) {
+
+            const label =
+                String(
+                    prediction.label ||
+                    prediction.class ||
+                    ""
+                )
+                .toLowerCase();
+
+            const score =
+                Number(
+                    prediction.score ||
+                    prediction.confidence ||
+                    0
+                );
+
+            if (
+                label.includes("nsfw")
+            ) {
+
+                nsfwScore =
+                    Math.max(
+                        nsfwScore,
+                        score
+                    );
+
+            }
+
+            if (
+                label.includes("nsfl")
+            ) {
+
+                nsflScore =
+                    Math.max(
+                        nsflScore,
+                        score
+                    );
+
+            }
+
+            if (
+                label === "sfw" ||
+                label.includes("safe")
+            ) {
+
+                sfwScore =
+                    Math.max(
+                        sfwScore,
+                        score
+                    );
+
+            }
+
+        }
+
+        console.log(
+            `🔞 NSFW : ${(
+                nsfwScore * 100
+            ).toFixed(2)}%`
+        );
+
+        console.log(
+            `🩸 NSFL/GORE : ${(
+                nsflScore * 100
+            ).toFixed(2)}%`
+        );
+
+        console.log(
+            `✅ SFW : ${(
+                sfwScore * 100
+            ).toFixed(2)}%`
+        );
+
+        // ====================================================
+        // DÉCISION
+        // ====================================================
+
+        if (
+            nsfwScore >=
+            NSFW_THRESHOLD
+        ) {
+
+            return {
+
+                detected:
+                    true,
+
+                type:
+                    "image NSFW",
+
+                score:
+                    nsfwScore,
+
+                label:
+                    "NSFW"
+
+            };
+
+        }
+
+        if (
+            nsflScore >=
+            NSFL_THRESHOLD
+        ) {
+
+            return {
+
+                detected:
+                    true,
+
+                type:
+                    "image GORE / NSFL",
+
+                score:
+                    nsflScore,
+
+                label:
+                    "NSFL"
+
+            };
+
+        }
+
+        return {
+
+            detected:
+                false,
+
+            score:
+                Math.max(
+                    nsfwScore,
+                    nsflScore
+                ),
+
+            label:
+                "SFW"
+
+        };
+
+    } catch (error) {
+
+        console.error(
+            "❌ Erreur analyse image :",
+            error.message
+        );
+
+        return {
+
+            detected:
+                false,
+
+            error:
+                true,
+
+            reason:
+                error.message
+
+        };
+
+    }
+
+}
+
+// ============================================================
+// ANALYSER TOUTES LES IMAGES
+// ============================================================
+
+async function moderateMessageImages(
+    message
+) {
+
+    if (
+        !message.attachments ||
+        message.attachments.size === 0
+    ) {
+
+        return {
+
+            detected:
+                false
+
+        };
+
+    }
+
+    const images =
+        message.attachments
+            .filter(
+                attachment =>
+                    isImageAttachment(
+                        attachment
+                    )
+            );
+
+    if (
+        images.size === 0
+    ) {
+
+        return {
+
+            detected:
+                false
+
+        };
+
+    }
+
+    console.log(
+        `🖼️ ${images.size} image(s) à analyser.`
+    );
+
+    for (
+        const [
+            id,
+            attachment
+        ]
+        of images
+    ) {
+
+        console.log(
+            `🔍 Analyse image ${id}...`
+        );
+
+        const result =
+            await moderateImage(
+                attachment
+            );
+
+        if (
+            result.detected
+        ) {
+
+            return {
+
+                detected:
+                    true,
+
+                ...result,
+
+                attachment
 
             };
 
@@ -1087,7 +1550,7 @@ function containsBlockedDomain(text) {
 }
 
 // ============================================================
-// SLASH COMMANDS
+// COMMANDES
 // ============================================================
 
 const commands = [
@@ -1139,66 +1602,82 @@ client.once(
         );
 
         console.log(
-
             `🤖 Connecté en tant que ${
                 client.user.tag
             }`
-
         );
 
         console.log(
-
             `🆔 ID : ${
                 client.user.id
             }`
-
         );
 
         console.log(
-
             `🌐 Serveurs : ${
                 client.guilds.cache.size
             }`
-
         );
 
         console.log(
-
             `📦 Commandes : ${
                 commands.length
             }`
-
         );
 
         console.log(
-
             `🟢 Node.js : ${
                 process.version
             }`
-
         );
 
         console.log(
-
             `🧩 Discord.js : ${
-                require(
-                    "discord.js"
-                ).version
+                require("discord.js").version
             }`
-
         );
 
         console.log(
-            "🛡️ Anti-insulte / Anti-NSFW : ACTIVÉ"
+            "🛡️ Anti-insulte : ACTIVÉ"
         );
 
         console.log(
-            `🛡️ Rôle équipe : ${ADMIN_ROLE_ID}`
+            "🔞 Anti-NSFW texte : ACTIVÉ"
         );
 
         console.log(
-            "👑 Propriétaire : PROTÉGÉ"
+            "🖼️ Anti-NSFW image : ACTIVÉ"
         );
+
+        console.log(
+            "🩸 Anti-GORE image : ACTIVÉ"
+        );
+
+        console.log(
+            `🛡️ Rôle équipe : ${
+                ADMIN_ROLE_ID
+            }`
+        );
+
+        console.log(
+            `🤖 Modèle image : ${
+                IMAGE_MODEL
+            }`
+        );
+
+        if (!HF_TOKEN) {
+
+            console.log(
+                "⚠️ HF_TOKEN MANQUANT — analyse image désactivée."
+            );
+
+        } else {
+
+            console.log(
+                "✅ HF_TOKEN détecté — analyse image disponible."
+            );
+
+        }
 
         // ====================================================
         // COMMANDES
@@ -1224,11 +1703,8 @@ client.once(
         } catch (error) {
 
             console.error(
-
                 "❌ Nettoyage commandes :",
-
                 error.message
-
             );
 
         }
@@ -1244,21 +1720,16 @@ client.once(
             );
 
             console.log(
-
                 `✅ ${
                     commands.length
                 } commandes globales enregistrées.`
-
             );
 
         } catch (error) {
 
             console.error(
-
                 "❌ Erreur commandes :",
-
                 error.message
-
             );
 
         }
@@ -1274,11 +1745,8 @@ client.once(
         // ====================================================
 
         setTimeout(
-
             sendHeartbeatToServer,
-
             5000
-
         );
 
         console.log(
@@ -1313,17 +1781,6 @@ client.on(
 
         }
 
-        const command =
-            interaction.commandName;
-
-        console.log(
-
-            `📥 Commande /${command} utilisée par ${
-                interaction.user.tag
-            }`
-
-        );
-
         try {
 
             // =================================================
@@ -1331,7 +1788,7 @@ client.on(
             // =================================================
 
             if (
-                command ===
+                interaction.commandName ===
                 "botinfo"
             ) {
 
@@ -1476,25 +1933,10 @@ client.on(
                             {
 
                                 name:
-                                    "📜 Commandes",
-
-                                value:
-                                    String(
-                                        commands.length
-                                    ),
-
-                                inline:
-                                    true
-
-                            },
-
-                            {
-
-                                name:
                                     "🛡️ Protection",
 
                                 value:
-                                    "Anti-insulte / Anti-NSFW",
+                                    "Insultes • NSFW • GORE • Images",
 
                                 inline:
                                     false
@@ -1520,7 +1962,7 @@ client.on(
             // =================================================
 
             if (
-                command ===
+                interaction.commandName ===
                 "uptime"
             ) {
 
@@ -1553,48 +1995,14 @@ client.on(
 
                 });
 
-                return;
-
             }
 
         } catch (error) {
 
             console.error(
-
-                `❌ Erreur /${command} :`,
-
-                error
-
+                "❌ Interaction :",
+                error.message
             );
-
-            if (
-                interaction.replied ||
-                interaction.deferred
-            ) {
-
-                await interaction.followUp({
-
-                    content:
-                        "❌ Une erreur est survenue.",
-
-                    ephemeral:
-                        true
-
-                });
-
-            } else {
-
-                await interaction.reply({
-
-                    content:
-                        "❌ Une erreur est survenue.",
-
-                    ephemeral:
-                        true
-
-                });
-
-            }
 
         }
 
@@ -1603,7 +2011,7 @@ client.on(
 );
 
 // ============================================================
-// MESSAGE CREATE — MODÉRATION
+// MESSAGE CREATE
 // ============================================================
 
 client.on(
@@ -1625,7 +2033,7 @@ client.on(
         }
 
         // ====================================================
-        // DEBUG
+        // LOG
         // ====================================================
 
         console.log(
@@ -1637,23 +2045,37 @@ client.on(
         );
 
         // ====================================================
-        // IGNORE MP
+        // MP
         // ====================================================
 
         if (
             !message.guild
         ) {
 
-            console.log(
-                "ℹ️ Message privé ignoré."
-            );
-
             return;
 
         }
 
         // ====================================================
-        // DÉTECTION
+        // OWNER
+        // ====================================================
+
+        const isOwner =
+            message.author.id ===
+            message.guild.ownerId;
+
+        // ====================================================
+        // ADMIN
+        // ====================================================
+
+        const isAdminRole =
+            message.member &&
+            message.member.roles.cache.has(
+                ADMIN_ROLE_ID
+            );
+
+        // ====================================================
+        // DÉTECTION TEXTE
         // ====================================================
 
         const wordResult =
@@ -1666,13 +2088,37 @@ client.on(
                 message.content
             );
 
-        const detection =
+        let detection =
             wordResult.detected
                 ? wordResult
                 : domainResult;
 
         // ====================================================
-        // MESSAGE NORMAL
+        // DÉTECTION IMAGE
+        // ====================================================
+
+        if (
+            !detection.detected
+        ) {
+
+            const imageResult =
+                await moderateMessageImages(
+                    message
+                );
+
+            if (
+                imageResult.detected
+            ) {
+
+                detection =
+                    imageResult;
+
+            }
+
+        }
+
+        // ====================================================
+        // AUTORISÉ
         // ====================================================
 
         if (
@@ -1688,7 +2134,7 @@ client.on(
         }
 
         // ====================================================
-        // LOG DÉTECTION
+        // LOG
         // ====================================================
 
         console.log("");
@@ -1702,71 +2148,64 @@ client.on(
         );
 
         console.log(
-
-            `👤 Utilisateur : ${
-                message.author.tag
-            }`
-
+            `👤 ${message.author.tag}`
         );
 
         console.log(
-
-            `🆔 ID : ${
-                message.author.id
-            }`
-
+            `🆔 ${message.author.id}`
         );
 
         console.log(
-
-            `📌 Serveur : ${
-                message.guild.name
-            }`
-
-        );
-
-        console.log(
-
             `📛 Type : ${
                 detection.type
             }`
-
         );
 
-        console.log(
+        if (
+            detection.word
+        ) {
 
-            `🔎 Détection : ${
-                detection.word ||
-                detection.domain ||
-                "inconnue"
-            }`
+            console.log(
+                `🔎 Mot : ${
+                    detection.word
+                }`
+            );
 
-        );
+        }
+
+        if (
+            detection.label
+        ) {
+
+            console.log(
+                `🤖 IA : ${
+                    detection.label
+                }`
+            );
+
+        }
+
+        if (
+            detection.score
+        ) {
+
+            console.log(
+                `📊 Score : ${
+                    (
+                        detection.score *
+                        100
+                    ).toFixed(2)
+                }%`
+            );
+
+        }
 
         console.log(
             "🚨 =================================="
         );
 
         // ====================================================
-        // VÉRIFICATION PROPRIÉTAIRE
-        // ====================================================
-
-        const isOwner =
-            message.author.id ===
-            message.guild.ownerId;
-
-        // ====================================================
-        // VÉRIFICATION RÔLE ADMIN
-        // ====================================================
-
-        const isAdminRole =
-            message.member &&
-            message.member.roles.cache.has(
-                ADMIN_ROLE_ID
-            );
-
-        // ====================================================
-        // PROPRIÉTAIRE
+        // OWNER
         // ====================================================
 
         if (
@@ -1774,15 +2213,7 @@ client.on(
         ) {
 
             console.log(
-
-                `👑 PROPRIÉTAIRE : ${
-                    message.author.tag
-                }`
-
-            );
-
-            console.log(
-                "🛡️ Propriété détectée — ne pas tirer."
+                "👑 PROPRIÉTAIRE AUTORISÉ"
             );
 
             try {
@@ -1797,9 +2228,7 @@ client.on(
                     async () => {
 
                         try {
-
                             await warning.delete();
-
                         } catch {}
 
                     },
@@ -1811,11 +2240,8 @@ client.on(
             } catch (error) {
 
                 console.error(
-
-                    "❌ Message propriétaire :",
-
+                    "❌ Warning owner :",
                     error.message
-
                 );
 
             }
@@ -1825,7 +2251,7 @@ client.on(
         }
 
         // ====================================================
-        // ADMIN / ÉQUIPE
+        // ADMIN
         // ====================================================
 
         if (
@@ -1833,15 +2259,7 @@ client.on(
         ) {
 
             console.log(
-
-                `🛡️ ADMIN / ÉQUIPE : ${
-                    message.author.tag
-                }`
-
-            );
-
-            console.log(
-                "🛡️ Ne pas tirer — il est l'un des nôtres."
+                "🛡️ MEMBRE DE L'ÉQUIPE AUTORISÉ"
             );
 
             try {
@@ -1856,9 +2274,7 @@ client.on(
                     async () => {
 
                         try {
-
                             await warning.delete();
-
                         } catch {}
 
                     },
@@ -1870,11 +2286,8 @@ client.on(
             } catch (error) {
 
                 console.error(
-
-                    "❌ Message admin :",
-
+                    "❌ Warning admin :",
                     error.message
-
                 );
 
             }
@@ -1888,11 +2301,7 @@ client.on(
         // ====================================================
 
         console.log(
-
-            `🎯 CIBLE DÉTECTÉE : ${
-                message.author.tag
-            }`
-
+            "🎯 CIBLE DÉTECTÉE"
         );
 
         // ====================================================
@@ -1904,24 +2313,14 @@ client.on(
             await message.delete();
 
             console.log(
-                "🗑️ Message interdit supprimé."
+                "🗑️ Message supprimé."
             );
 
         } catch (error) {
 
             console.error(
-                "❌ IMPOSSIBLE DE SUPPRIMER LE MESSAGE"
-            );
-
-            console.error(
-                "❌ Erreur :",
+                "❌ Impossible de supprimer :",
                 error.message
-            );
-
-            console.error(
-                "❌ Code :",
-                error.code ||
-                "N/A"
             );
 
             return;
@@ -1929,7 +2328,7 @@ client.on(
         }
 
         // ====================================================
-        // AVERTISSEMENT CIBLE
+        // MESSAGE
         // ====================================================
 
         try {
@@ -1940,10 +2339,6 @@ client.on(
                     `🎯 **cible détecter suppression du message**\n<@${message.author.id}>`
 
                 );
-
-            console.log(
-                "🎯 Avertissement cible envoyé."
-            );
 
             setTimeout(
 
@@ -1964,11 +2359,8 @@ client.on(
         } catch (error) {
 
             console.error(
-
-                "❌ Impossible d'envoyer l'avertissement cible :",
-
+                "❌ Warning cible :",
                 error.message
-
             );
 
         }
@@ -1978,12 +2370,10 @@ client.on(
 );
 
 // ============================================================
-// TOKEN CHECK
+// TOKEN
 // ============================================================
 
-if (
-    !TOKEN
-) {
+if (!TOKEN) {
 
     console.error(
         "❌ DISCORD_TOKEN est manquant !"
