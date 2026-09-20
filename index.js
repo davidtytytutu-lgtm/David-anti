@@ -987,21 +987,295 @@ client.on(
 // MESSAGE CREATE
 // ============================================================
 
+// ============================================================
+// DAVID ANTI — ANTI-INSULTE / ANTI-NSFW
+// ============================================================
+
+// Mots / expressions surveillés.
+// Cette liste peut être agrandie progressivement.
+const BLOCKED_WORDS = [
+    // =========================
+    // INSULTES
+    // =========================
+    "connard",
+    "connasse",
+    "con",
+    "conne",
+    "abruti",
+    "abrutie",
+    "idiot",
+    "idiote",
+    "imbecile",
+    "imbécile",
+    "crétin",
+    "cretin",
+    "crétine",
+    "cretine",
+    "débile",
+    "debile",
+    "salaud",
+    "salopard",
+    "salop",
+    "salopes",
+    "pute",
+    "putain",
+    "merde",
+    "bordel",
+    "enculé",
+    "encule",
+    "enculée",
+    "enculee",
+    "fdp",
+    "ntm",
+    "tg",
+    "ta gueule",
+
+    // =========================
+    // SEXUEL / NSFW
+    // =========================
+    "porn",
+    "porno",
+    "pornographie",
+    "pornographique",
+    "xxx",
+    "nsfw",
+    "sexcam",
+    "sexe",
+    "sexuel",
+    "sexuelle",
+    "nue",
+    "nu",
+    "nudes",
+    "nude",
+    "masturbation",
+    "masturber",
+    "pénétration",
+    "penetration",
+
+    // =========================
+    // VIOLENCE / CONTENU TRÈS EXPLICITE
+    // =========================
+    "gore",
+    "décapitation",
+    "decapitation",
+    "démembrement",
+    "demembrement"
+];
+
+// Domaines / liens à bloquer.
+// Ajoute ici d'autres domaines si nécessaire.
+const BLOCKED_DOMAINS = [
+    "pornhub",
+    "xvideos",
+    "xnxx",
+    "xhamster",
+    "redtube"
+];
+
+// ============================================================
+// NORMALISATION DU TEXTE
+// ============================================================
+
+function normalizeModerationText(text) {
+    return text
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[@4]/g, "a")
+        .replace(/[3€]/g, "e")
+        .replace(/[1!|]/g, "i")
+        .replace(/[0]/g, "o")
+        .replace(/[5$]/g, "s")
+        .replace(/[7]/g, "t")
+        .replace(/[^a-z0-9]+/g, "");
+}
+
+// ============================================================
+// DÉTECTION
+// ============================================================
+
+function containsBlockedWord(text) {
+    const normalized = normalizeModerationText(text);
+
+    for (const word of BLOCKED_WORDS) {
+        const normalizedWord =
+            normalizeModerationText(word);
+
+        if (
+            normalizedWord &&
+            normalized.includes(normalizedWord)
+        ) {
+            return {
+                detected: true,
+                type: "mot interdit",
+                word
+            };
+        }
+    }
+
+    return {
+        detected: false
+    };
+}
+
+// ============================================================
+// DÉTECTION DES DOMAINES NSFW
+// ============================================================
+
+function containsBlockedDomain(text) {
+    const lower = text.toLowerCase();
+
+    for (const domain of BLOCKED_DOMAINS) {
+        if (lower.includes(domain)) {
+            return {
+                detected: true,
+                type: "lien NSFW",
+                domain
+            };
+        }
+    }
+
+    return {
+        detected: false
+    };
+}
+
+// ============================================================
+// MESSAGE CREATE
+// ============================================================
+
 client.on(
     "messageCreate",
     async message => {
+
+        // ----------------------------------------------------
+        // Ignore les bots
+        // ----------------------------------------------------
 
         if (message.author.bot) {
             return;
         }
 
-        // ====================================================
-        // ANTI-INSULTE / ANTI-NSFW
-        // ====================================================
+        // ----------------------------------------------------
+        // Ignore les messages privés
+        // ----------------------------------------------------
+
+        if (!message.guild) {
+            return;
+        }
+
+        // ----------------------------------------------------
+        // PROPRIÉTAIRE DU SERVEUR = AUTORISÉ
+        // ----------------------------------------------------
         //
-        // Cette partie sera ajoutée ensuite.
+        // Le propriétaire peut faire des tests sans
+        // déclencher la modération.
         //
-        // ====================================================
+        // ----------------------------------------------------
+
+        if (
+            message.author.id ===
+            message.guild.ownerId
+        ) {
+            console.log(
+                `👑 Propriétaire autorisé : ${message.author.tag}`
+            );
+
+            return;
+        }
+
+        // ----------------------------------------------------
+        // Vérification du texte
+        // ----------------------------------------------------
+
+        const wordResult =
+            containsBlockedWord(
+                message.content
+            );
+
+        const domainResult =
+            containsBlockedDomain(
+                message.content
+            );
+
+        const detection =
+            wordResult.detected
+                ? wordResult
+                : domainResult;
+
+        // ----------------------------------------------------
+        // Rien détecté
+        // ----------------------------------------------------
+
+        if (!detection.detected) {
+            return;
+        }
+
+        // ----------------------------------------------------
+        // MESSAGE INTERDIT DÉTECTÉ
+        // ----------------------------------------------------
+
+        console.log(
+            `🚨 CONTENU BLOQUÉ`
+        );
+
+        console.log(
+            `👤 Utilisateur : ${message.author.tag}`
+        );
+
+        console.log(
+            `📌 Serveur : ${message.guild.name}`
+        );
+
+        console.log(
+            `📛 Type : ${detection.type}`
+        );
+
+        // ----------------------------------------------------
+        // SUPPRESSION DU MESSAGE
+        // ----------------------------------------------------
+
+        try {
+            await message.delete();
+
+            console.log(
+                "🗑️ Message supprimé."
+            );
+        } catch (error) {
+            console.error(
+                "❌ Impossible de supprimer le message :",
+                error.message
+            );
+        }
+
+        // ----------------------------------------------------
+        // RÉPONSE DU BOT
+        // ----------------------------------------------------
+
+        try {
+            const warning =
+                await message.channel.send(
+                    `🛡️ **propriété détecter ne tire pas**\n<@${message.author.id}>`
+                );
+
+            // Supprime la réponse après 5 secondes
+            // pour éviter de remplir le salon.
+
+            setTimeout(
+                async () => {
+                    try {
+                        await warning.delete();
+                    } catch {}
+                },
+                5000
+            );
+
+        } catch (error) {
+            console.error(
+                "❌ Impossible d'envoyer l'avertissement :",
+                error.message
+            );
+        }
     }
 );
 
